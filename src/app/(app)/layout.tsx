@@ -1,6 +1,8 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { usuarioAtual } from '@/lib/supabase/cliente-servidor';
+import { ConfiguracaoAusente } from '@/components/configuracao-ausente';
+import { supabaseConfigurado } from '@/lib/supabase/configuracao';
 
 const NAVEGACAO = [
   { href: '/empresas', rotulo: 'Empresas' },
@@ -9,6 +11,8 @@ const NAVEGACAO = [
 ];
 
 export default async function LayoutApp({ children }: { children: React.ReactNode }) {
+  if (!supabaseConfigurado) return <ConfiguracaoAusente />;
+
   const usuario = await usuarioAtual();
   if (!usuario) redirect('/login');
 

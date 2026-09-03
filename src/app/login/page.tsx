@@ -1,6 +1,10 @@
+import { ConfiguracaoAusente } from '@/components/configuracao-ausente';
+import { supabaseConfigurado } from '@/lib/supabase/configuracao';
 import { FormularioAuth } from './formulario';
 
 export default function PaginaLogin() {
+  if (!supabaseConfigurado) return <ConfiguracaoAusente />;
+
   return (
     <main className="flex min-h-screen items-center justify-center px-4">
       <div className="w-full max-w-sm">
