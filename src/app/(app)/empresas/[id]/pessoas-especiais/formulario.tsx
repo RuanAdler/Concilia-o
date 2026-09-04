@@ -35,7 +35,7 @@ export function FormularioPessoaEspecial({
           name="nome_exibicao"
           required
           className="campo"
-          placeholder="Luiz Carlos L Almeida Jr"
+          placeholder="Nome do sócio ou funcionário"
         />
       </div>
 

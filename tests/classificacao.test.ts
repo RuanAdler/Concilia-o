@@ -42,7 +42,7 @@ describe('camada 1 — pessoa especial', () => {
           id: 'p1',
           identificador: CPF_SOCIO,
           tipo_identificador: 'cpf',
-          nome_exibicao: 'Luiz Carlos',
+          nome_exibicao: 'Socio Exemplo',
           papel: 'socio',
           conta_contabil_id: 'conta-socio',
         },
@@ -50,7 +50,7 @@ describe('camada 1 — pessoa especial', () => {
     });
 
     const [resultado] = classificarLote(
-      [lancamento({ complemento: `03/08 10:14 ${CPF_SOCIO} LUIZ CARLOS`, valor: 99999 })],
+      [lancamento({ complemento: `03/08 10:14 ${CPF_SOCIO} SOCIO EXEMPLO`, valor: 99999 })],
       ctx,
       null,
       null,
@@ -66,9 +66,9 @@ describe('camada 1 — pessoa especial', () => {
       pessoasEspeciais: [
         {
           id: 'p2',
-          identificador: 'LUIZ CARLOS L ALMEIDA JR',
+          identificador: 'SOCIO EXEMPLO DA SILVA',
           tipo_identificador: 'nome',
-          nome_exibicao: 'Luiz Carlos L Almeida Jr',
+          nome_exibicao: 'Socio Exemplo da Silva',
           papel: 'socio',
           conta_contabil_id: 'conta-socio',
         },
@@ -78,8 +78,8 @@ describe('camada 1 — pessoa especial', () => {
     const [resultado] = classificarLote(
       [
         lancamento({
-          complemento: '03/08 10:14 LUIZ CARLOS L ALMEIDA JR',
-          historicoBruto: 'Pix - Recebido 03/08 10:14 Luiz Carlos L Almeida Jr',
+          complemento: '03/08 10:14 SOCIO EXEMPLO DA SILVA',
+          historicoBruto: 'Pix - Recebido 03/08 10:14 Socio Exemplo da Silva',
         }),
       ],
       ctx,
@@ -126,13 +126,37 @@ describe('camada 2 — CNPJ/CPF recorrente', () => {
 
   it('ignora número longo que não é documento válido (id de transação Pix)', () => {
     const [resultado] = classificarLote(
-      [lancamento({ complemento: '03/08 11:01 00003833265590 MARCONI DOS' })],
+      [lancamento({ complemento: '03/08 11:01 88888888888888 FULANO DOS' })],
       contexto(),
       null,
       null,
     );
 
     expect(resultado.documentoExtraido).toBeNull();
+  });
+
+  it('reconhece o CPF que o BB preenche com zeros até 14 dígitos', () => {
+    // O BB completa o CPF do pagador com zeros até 14 dígitos. Sem tratar
+    // isso, nenhum Pix de pessoa física teria documento.
+    const [resultado] = classificarLote(
+      [lancamento({ complemento: '03/08 11:01 00052998224725 FULANO DE TA' })],
+      contexto(),
+      null,
+      null,
+    );
+
+    expect(resultado.documentoExtraido).toBe(CPF_SOCIO);
+  });
+
+  it('lê CNPJ de 14 dígitos sem confundir com os 11 primeiros', () => {
+    const [resultado] = classificarLote(
+      [lancamento({ complemento: '03/08 14:44 11222333000181 EMPRESA EXEM' })],
+      contexto(),
+      null,
+      null,
+    );
+
+    expect(resultado.documentoExtraido).toBe('11222333000181');
   });
 });
 

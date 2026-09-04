@@ -1,23 +1,22 @@
+import type { FragmentoPdf } from '@/lib/parsers/pdf-texto';
+
 /**
- * Gera um PDF válido mínimo com linhas de texto em posições dadas.
+ * Gera um PDF válido mínimo com textos em posições dadas.
  * Serve para exercitar a extração posicional real (pdfjs) nos testes, sem
  * depender de um extrato de verdade no repositório.
  */
-export function montarPdfComLinhas(linhas: string[]): Uint8Array {
-  const alturaLinha = 14;
-  const topo = 740;
-
-  const comandos = linhas
-    .map((texto, indice) => {
-      const escapado = texto.replace(/([\\()])/g, '\\$1');
-      return `BT /F1 10 Tf 40 ${topo - indice * alturaLinha} Td (${escapado}) Tj ET`;
+export function montarPdfPosicionado(itens: Array<Pick<FragmentoPdf, 'texto' | 'x' | 'y'>>): Uint8Array {
+  const comandos = itens
+    .map((item) => {
+      const escapado = item.texto.replace(/([\\()])/g, '\\$1');
+      return `BT /F1 9 Tf ${item.x.toFixed(2)} ${item.y.toFixed(2)} Td (${escapado}) Tj ET`;
     })
     .join('\n');
 
   const objetos = [
     '<< /Type /Catalog /Pages 2 0 R >>',
     '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
-    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] ' +
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 842] ' +
       '/Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>',
     '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
     `<< /Length ${comandos.length} >>\nstream\n${comandos}\nendstream`,

@@ -94,11 +94,23 @@ export function extrairDocumento(
     const numero = apenasDigitos(bruto);
     if (numero.length !== 11 && numero.length !== 14) continue;
 
-    const tipo: TipoDocumento = numero.length === 11 ? 'cpf' : 'cnpj';
-    const valido = tipo === 'cpf' ? validarCpf(numero) : validarCnpj(numero);
+    if (numero.length === 11) {
+      if (validarCpf(numero)) return { numero, tipo: 'cpf' };
+      candidatoSemValidacao ??= { numero, tipo: 'cpf' };
+      continue;
+    }
 
-    if (valido) return { numero, tipo };
-    candidatoSemValidacao ??= { numero, tipo };
+    if (validarCnpj(numero)) return { numero, tipo: 'cnpj' };
+
+    // O BB preenche o CPF do pagador com zeros à esquerda até 14 dígitos
+    // ("00052998224725" = CPF 529.982.247-25). Sem tratar isso, nenhum Pix de
+    // pessoa física teria documento e a camada 2 do motor nunca casaria.
+    const cpfInterno = numero.slice(3);
+    if (numero.startsWith('000') && validarCpf(cpfInterno)) {
+      return { numero: cpfInterno, tipo: 'cpf' };
+    }
+
+    candidatoSemValidacao ??= { numero, tipo: 'cnpj' };
   }
 
   return validarDigito ? null : candidatoSemValidacao;

@@ -20,34 +20,41 @@ const CASO_REFERENCIA: DadosExportacao = {
       tipo: 'credito',
       valor: 45,
       codigoContaContrapartida: '504',
-      historico: 'Pix-Recebido QR Code 03/08 11:01 00003833265590 MARCONI DOS',
+      historico: 'Pix-Recebido QR Code 03/08 11:01 00052998224725 FULANO DE TA',
     },
     {
       data: '2026-08-04',
       tipo: 'debito',
       valor: 650,
       codigoContaContrapartida: '837',
-      historico: 'Pix - Enviado 04/08 08:42 CLEDSON ALVES DE SOUZA SA',
+      historico: 'Pix - Enviado 04/08 08:42 BELTRANO ALVES DE SOUZ',
     },
   ],
 };
 
 describe('gerarTxtDominio', () => {
   it('reproduz o arquivo de referência da seção 7.6', () => {
-    const linhas = gerarTxtDominio(CASO_REFERENCIA).split('\r\n').filter(Boolean);
+    const linhas = gerarTxtDominio(CASO_REFERENCIA).split('\n').filter(Boolean);
 
     expect(linhas).toEqual([
       '|0000|17401989000148|',
       '|6000|X||||',
-      '|6100|03/08/2026|8|504|45,00|75|Pix-Recebido QR Code 03/08 11:01 00003833265590 MARCONI DOS||||',
+      '|6100|03/08/2026|8|504|45,00|75|Pix-Recebido QR Code 03/08 11:01 00052998224725 FULANO DE TA||||',
       '|6000|X||||',
-      '|6100|04/08/2026|837|8|650,00|75|Pix - Enviado 04/08 08:42 CLEDSON ALVES DE SOUZA SA||||',
+      '|6100|04/08/2026|837|8|650,00|75|Pix - Enviado 04/08 08:42 BELTRANO ALVES DE SOUZ||||',
     ]);
   });
 
   it('remove pontuação do CNPJ no registro 0000', () => {
     const txt = gerarTxtDominio({ ...CASO_REFERENCIA, cnpjEmpresa: '17.401.989/0001-48' });
     expect(txt.startsWith('|0000|17401989000148|')).toBe(true);
+  });
+
+  it('usa LF e termina o arquivo com quebra de linha, como o Domínio gera', () => {
+    // Medido no arquivo real: 411 quebras, nenhuma delas CRLF.
+    const txt = gerarTxtDominio(CASO_REFERENCIA);
+    expect(txt).not.toContain('\r');
+    expect(txt.endsWith('\n')).toBe(true);
   });
 
   it('formata valor com vírgula decimal e sem separador de milhar', () => {
@@ -63,7 +70,7 @@ describe('gerarTxtDominio', () => {
       ...CASO_REFERENCIA,
       lancamentos: [{ ...CASO_REFERENCIA.lancamentos[0], historico: 'Pix | Recebido\nsegunda linha' }],
     });
-    const linha6100 = txt.split('\r\n').find((l) => l.startsWith('|6100|'))!;
+    const linha6100 = txt.split('\n').find((l) => l.startsWith('|6100|'))!;
     expect(linha6100.split('|')).toHaveLength(12);
     expect(linha6100).toContain('Pix Recebido segunda linha');
   });

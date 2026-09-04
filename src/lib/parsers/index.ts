@@ -4,7 +4,7 @@ import { parsearOfx } from './ofx';
 import type { BancoTemplate, ResultadoParse } from './tipos';
 
 export * from './tipos';
-export { parsearLinhasBancoDoBrasil } from './banco-do-brasil-pdf';
+export { parsearPaginasBancoDoBrasil } from './banco-do-brasil-pdf';
 export { parsearOfx } from './ofx';
 export { parsearCsv } from './csv';
 

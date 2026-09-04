@@ -114,7 +114,7 @@ regra (por CNPJ/CPF quando há documento, senão por tipo de operação) — é 
 ```
 |0000|17401989000148|
 |6000|X||||
-|6100|03/08/2026|8|504|45,00|75|Pix-Recebido QR Code 03/08 11:01 00003833265590 MARCONI DOS||||
+|6100|03/08/2026|8|504|45,00|75|Pix-Recebido QR Code 03/08 11:01 00052998224725 FULANO DE TA||||
 ```
 
 - **Débito/crédito vem do sinal do extrato**, não da conta: entrada → campo 3 = conta banco,
@@ -147,15 +147,52 @@ src/app/api/             processamento do extrato, revisão manual, download do 
 supabase/migrations/     schema, RLS e seed
 ```
 
-## Pendências conhecidas
+## Calibração contra o extrato real
 
-Duas coisas dependem de confirmação contra o arquivo de referência do Domínio (seção 7.5) e estão
-isoladas como constantes no topo de `src/lib/export/dominio.ts`:
+Parser e exportação foram calibrados contra um extrato real do Banco do Brasil (agosto/2026, 205
+lançamentos, 10 páginas) e o TXT que o próprio Domínio gerou a partir dele.
 
-- `LIMITE_HISTORICO` — hoje `null` (sem truncar). Se o Domínio limitar o campo 7, basta pôr o número.
-- `QUEBRA_LINHA` — hoje `\r\n` (CRLF, padrão dos arquivos gerados pelo próprio Domínio no Windows).
+**Resultado:** os 205 lançamentos saem idênticos em data, valor, sentido e histórico, e o arquivo
+gerado é **byte a byte igual** ao de referência (21.262 bytes).
 
-O parser do BB foi escrito a partir da estrutura descrita na especificação (duas linhas por
-lançamento, valor com sinal ao final) e validado com PDFs sintéticos. A calibração final contra um
-extrato real é o primeiro passo do teste de ponta a ponta — o diagnóstico de linhas cruas na tela de
-importação existe justamente para isso.
+O extrato e o TXT não estão no repositório — são dados reais de clientes, com CPF e nomes. Os testes
+usam fixtures sintéticas que reproduzem a geometria medida (`tests/ajuda/fragmentos-bb.ts`).
+
+### O que a calibração corrigiu
+
+| Achado | Antes | Depois |
+| --- | --- | --- |
+| Quebra de linha do TXT | CRLF (suposição) | **LF**, medido: 411 quebras, nenhuma CRLF |
+| Estrutura do extrato | duas linhas de texto por lançamento | **tabela**, com colunas em alturas diferentes |
+| CPF do pagador Pix | descartado | `00052998224725` é o CPF `038.332.655-90` com zeros à esquerda |
+| Lançamento na quebra de página | perdido ou fundido com o vizinho | costurado (a data chega partida em `14/08/202` + `6`) |
+
+O campo 7 (histórico) não tem limite fixo: no arquivo real varia de 20 a 61 caracteres, sem corte em
+valor redondo. `LIMITE_HISTORICO` segue `null` em `src/lib/export/dominio.ts`.
+
+### Por que o parser lê por coluna
+
+O extrato do BB não é texto corrido. Cada lançamento espalha seus pedaços por três alturas:
+
+```
+Dia(x30)   Lote(x91)  Documento(x152)  Histórico(x266)          Valor(dir.)
+──────────────────────────────────────────────────────────────────────────
+                                       Pix-Recebido QR Code       <- tipo
+03/08/2026 14397      31101193368792   03/08 11:01 ... FULANO    45,00 (+)
+                                       ^ complemento
+```
+
+Quem delimita a linha é o **valor** — há exatamente um por lançamento, e cada fragmento pertence ao
+valor mais próximo em Y. As posições de coluna são lidas do próprio cabeçalho da tabela, então uma
+mudança de largura no extrato não quebra o parser.
+
+### Cobertura do motor no extrato real
+
+| Camada | Alcance |
+| --- | --- |
+| 2 — CNPJ/CPF | 136 de 205 lançamentos (56 CPF, 80 CNPJ) |
+| 3 — tipo de operação | 21 tipos distintos; `Pix-Recebido QR Code` cai em 504 nos 34 casos |
+| — | os 69 sem documento são tarifas e transferências, que o extrato não identifica |
+
+`tests/similaridade-tipos-reais.test.ts` garante que a comparação por similaridade una apenas
+`Pix - Recebido` com `Pix-Recebido QR Code` e **nunca** confunda entrada com saída.

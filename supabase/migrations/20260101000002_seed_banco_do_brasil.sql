@@ -1,7 +1,10 @@
 -- =============================================================================
 -- Template de leitura do extrato do Banco do Brasil (PDF)
--- Seção 5 da especificação: cada lançamento ocupa duas linhas — a primeira é o
--- tipo de operação, a segunda o complemento variável (hora, CPF/CNPJ, nome).
+--
+-- Calibrado contra um extrato real (agosto/2026, 205 lançamentos, 10 páginas).
+-- O extrato é uma TABELA: as posições de coluna são lidas do próprio cabeçalho
+-- em tempo de execução, e os valores abaixo servem só de fallback caso o
+-- cabeçalho mude de rótulo.
 --
 -- Este cadastro é GLOBAL: descreve apenas COMO ler o extrato. Nenhum código de
 -- conta contábil ou de histórico padrão do Domínio mora aqui (seção 7.2).
@@ -16,35 +19,14 @@ values (
   'br_sinal_sufixo',
   'v1',
   '{
-    "modo": "duas_linhas",
+    "modo": "colunas",
     "validarDigitoDocumento": true,
-    "maxLinhasComplemento": 3,
-    "tokensIgnorarRegex": "^[0-9]{1,20}([-./][0-9]{1,20})*$",
-    "linhasIgnorar": [
-      "^S\\s*A\\s*L\\s*D\\s*O",
-      "SALDO ANTERIOR",
-      "SALDO DO DIA",
-      "SALDO EM CONTA",
-      "S A L D O",
-      "EXTRATO DE CONTA",
-      "^CLIENTE:",
-      "^AG[EÊ]NCIA",
-      "^CONTA CORRENTE",
-      "^BANCO DO BRASIL",
-      "^P[AÁ]GINA",
-      "^DATA\\s+DEPEND",
-      "OUVIDORIA",
-      "SAC ",
-      "^LANCAMENTOS? DO DIA"
-    ],
+    "colunasPdf": { "dia": 30, "lote": 91, "documento": 152, "historico": 266 },
     "sinonimos": {
-      "PIX RECEBIDO": ["PIX - RECEBIDO", "PIX-RECEBIDO", "PIX RECEBIDO QR CODE", "PIX-RECEBIDO QR CODE", "PIX RECEBIDO DEVOLUCAO"],
-      "PIX ENVIADO": ["PIX - ENVIADO", "PIX-ENVIADO", "PIX ENVIADO QR CODE", "PIX-ENVIADO QR CODE"],
-      "TARIFA PIX ENVIADO": ["TARIFA PIX - ENVIADO", "TAR PIX ENVIADO"],
-      "TARIFA PACOTE DE SERVICOS": ["TAR PACOTE SERVICOS", "TARIFA PACOTE SERVICOS", "PACOTE DE SERVICOS"],
-      "PAGAMENTO DE BOLETO": ["PAGTO DE BOLETO", "PAGAMENTO BOLETO", "PAGTO BOLETO"],
-      "TRANSFERENCIA RECEBIDA": ["TED RECEBIDA", "TED - RECEBIDA", "TRANSF RECEBIDA"],
-      "TRANSFERENCIA ENVIADA": ["TED ENVIADA", "TED - ENVIADA", "TRANSF ENVIADA"]
+      "PIX RECEBIDO": ["PIX RECEBIDO QR CODE", "PIX RECEBIDO DEVOLUCAO"],
+      "PIX ENVIADO": ["PIX ENVIADO QR CODE"],
+      "TRANSFERENCIA RECEBIDA": ["TED CREDITO EM CONTA", "TED RECEBIDA"],
+      "TRANSFERENCIA ENVIADA": ["TED PAG FORNECEDORES", "TED ENVIADA"]
     }
   }'::jsonb
 )

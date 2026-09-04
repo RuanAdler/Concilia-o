@@ -27,11 +27,10 @@ function montarRegistro(campos: Array<string | null | undefined>): string {
 const CAMPOS_RESERVADOS_6100 = 3;
 
 /**
- * Quebra de linha do arquivo. O importador do Domínio roda em Windows; CRLF é o
- * padrão dos arquivos gerados por ele. Trocar aqui caso o arquivo de referência
- * use LF.
+ * Quebra de linha do arquivo. Medido no arquivo real gerado pelo Domínio: LF,
+ * não CRLF, e com quebra também na última linha.
  */
-export const QUEBRA_LINHA = '\r\n';
+export const QUEBRA_LINHA = '\n';
 
 /**
  * Limite de caracteres do campo 7. A especificação (7.5) deixa isso como

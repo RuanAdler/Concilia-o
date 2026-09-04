@@ -50,6 +50,11 @@ export interface EstruturaHistorico {
   };
   /** Separador usado no CSV; padrão detectado automaticamente. */
   separadorCsv?: string;
+  /**
+   * Posição X das colunas no PDF, usada só quando o cabeçalho da tabela não é
+   * encontrado — normalmente elas são lidas do próprio cabeçalho.
+   */
+  colunasPdf?: { dia?: number; lote?: number; documento?: number; historico?: number };
 }
 
 export interface BancoTemplate {
