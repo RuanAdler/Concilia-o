@@ -1,10 +1,10 @@
 import { NextResponse } from 'next/server';
-import { ThinqError, energiaDoDispositivo, estadoDoDispositivo, listarDispositivos } from '@/lib/thinq';
+import { ThinqError, energiaDoDispositivo, estadoDoDispositivo, listarDispositivos, perfilDeEnergia } from '@/lib/thinq';
 
 export const dynamic = 'force-dynamic';
 
 function ymd(d: Date): string {
-  return d.toISOString().slice(0, 10).replace(/-/g, '');
+  return d.toISOString().slice(0, 10);
 }
 
 function achar(obj: unknown): { id: string; nome: string } | null {
@@ -39,13 +39,22 @@ export async function GET(req: Request) {
     const ligado = op ? op === 'POWER_ON' : null;
 
     let energia: unknown = null;
+    let perfilEnergia: unknown = null;
     let erroEnergia: string | null = null;
-    const hoje = new Date();
-    const ini = new Date(hoje.getTime() - 30 * 86_400_000);
+    const texto = (e: unknown) => (e instanceof ThinqError ? `${e.message}: ${JSON.stringify(e.corpo)}` : String(e));
     try {
-      energia = await energiaDoDispositivo(ar.id, 'DAILY', ymd(ini), ymd(hoje));
+      perfilEnergia = await perfilDeEnergia(ar.id);
+      const props = (perfilEnergia as { response?: { property?: unknown } }).response?.property;
+      const propriedade = (Array.isArray(props) ? props[0] : props) as string | undefined;
+      if (typeof propriedade === 'string') {
+        const hoje = new Date();
+        const ini = new Date(hoje.getTime() - 30 * 86_400_000);
+        energia = await energiaDoDispositivo(ar.id, propriedade, 'DAILY', ymd(ini), ymd(hoje));
+      } else {
+        erroEnergia = 'Perfil de energia sem propriedade reconhecida';
+      }
     } catch (e) {
-      erroEnergia = e instanceof ThinqError ? `${e.message}: ${JSON.stringify(e.corpo)}` : String(e);
+      erroEnergia = texto(e);
     }
 
     return NextResponse.json({
@@ -53,6 +62,7 @@ export async function GET(req: Request) {
       nome: ar.nome,
       ligado,
       energia,
+      perfilEnergia,
       erroEnergia,
       ...(diag ? { dispositivos, estado } : {}),
     });

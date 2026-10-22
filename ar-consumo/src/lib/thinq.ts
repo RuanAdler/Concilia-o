@@ -44,12 +44,9 @@ export async function chamar(caminho: string): Promise<unknown> {
 export const listarDispositivos = () => chamar('/devices');
 export const estadoDoDispositivo = (id: string) => chamar(`/devices/${encodeURIComponent(id)}/state`);
 
-/**
- * Consumo de energia. O caminho exato não foi confirmado na documentação pública;
- * a página /diagnostico mostra o que a LG devolve para o seu aparelho.
- */
-export function energiaDoDispositivo(id: string, periodo: string, de: string, ate: string) {
-  const prop = process.env.LG_ENERGY_PROPERTY || 'energyUsage';
-  const q = new URLSearchParams({ period: periodo, startDate: de, endDate: ate });
-  return chamar(`/devices/${encodeURIComponent(id)}/energy/${prop}/usage?${q}`);
+export const perfilDeEnergia = (id: string) => chamar(`/devices/energy/${encodeURIComponent(id)}/profile`);
+
+export function energiaDoDispositivo(id: string, propriedade: string, periodo: string, de: string, ate: string) {
+  const q = new URLSearchParams({ property: propriedade, period: periodo, startDate: de, endDate: ate });
+  return chamar(`/devices/energy/${encodeURIComponent(id)}/usage?${q}`);
 }
