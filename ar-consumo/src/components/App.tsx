@@ -22,7 +22,9 @@ type Pendente = { label: string; comando: Comando } | null;
 const json = async (r: Response) => (await r.json().catch(() => ({}))) as Record<string, any>;
 
 export default function App() {
-  const [cfg, setCfg] = usarLocal<Config>('ar.cfg2', CONFIG_PADRAO);
+  const [cfgSalvo, setCfg] = usarLocal<Config>('ar.cfg2', CONFIG_PADRAO);
+  // configurações antigas não têm os campos novos: completa com o padrão
+  const cfg = useMemo<Config>(() => ({ ...CONFIG_PADRAO, ...cfgSalvo, conta: { ...CONFIG_PADRAO.conta, ...cfgSalvo.conta } }), [cfgSalvo]);
   const [mapa, setMapa] = usarLocal<Record<string, number>>('ar.dias', {});
   const [salvo, setSalvo] = usarLocal<Salvo>('ar.device', null);
   const [ui, setUi] = usarLocal<{ dica: boolean; aviso: boolean }>('ar.ui', { dica: false, aviso: false });
@@ -308,6 +310,8 @@ export default function App() {
             setCfg={setCfg}
             tarifa={tarifa}
             desde={dados.desde}
+            dias={dias}
+            hoje={hoje}
             nomeLg={aparelho?.name ?? ''}
             nDias={dias.length}
             pinConfigurado={pin.configurado}

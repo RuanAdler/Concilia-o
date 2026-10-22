@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { agruparMeses, custoDe, delta, faixasSemana, mediaAnterior, mediaPorDiaSemana, periodos, projecaoMes, tarifaDoMes } from '../src/lib/stats';
+import { agruparMeses, calcularConta, custoDe, delta, faixasSemana, mediaAnterior, mediaPorDiaSemana, periodos, projecaoMes, tarifaDoMes } from '../src/lib/stats';
 import { parseNum } from '../src/lib/fmt';
 
 const dia = (data: string, kwh: number) => ({ data, kwh });
@@ -84,5 +84,36 @@ describe('parseNum', () => {
     expect(parseNum('1.234,5')).toBe(1234.5);
     expect(parseNum('12.5')).toBe(12.5);
     expect(parseNum('abc')).toBe(0);
+  });
+});
+
+describe('calcularConta', () => {
+  const mes = (n: number, kwh: number) => Array.from({ length: n }, (_, i) => dia(`2026-09-${String(i + 1).padStart(2, '0')}`, kwh));
+
+  it('acha a tarifa e a fatia do ar com o mês completo', () => {
+    const r = calcularConta({ valor: 450, kwh: 400, fixas: 50, mes: '2026-09' }, mes(30, 4), hoje);
+    expect(r?.tarifa).toBe(1);
+    expect(r?.kwhAr).toBe(120);
+    expect(r?.share).toBeCloseTo(0.3);
+    expect(r?.custoAr).toBe(120);
+    expect(r?.cobertura).toBe(1);
+    expect(r?.desde).toBe('2026-10-01');
+  });
+
+  it('estima o mês inteiro quando só há parte dos dias', () => {
+    const r = calcularConta({ valor: 400, kwh: 400, fixas: 0, mes: '2026-09' }, mes(15, 4), hoje);
+    expect(r?.kwhAr).toBe(60);
+    expect(r?.custoMesCheio).toBeCloseTo(120);
+    expect(r?.shareMesCheio).toBeCloseTo(0.3);
+  });
+
+  it('não estima com pouquíssimos dias e recusa dados inválidos', () => {
+    expect(calcularConta({ valor: 400, kwh: 400, fixas: 0, mes: '2026-09' }, mes(3, 4), hoje)?.custoMesCheio).toBeNull();
+    expect(calcularConta({ valor: 40, kwh: 400, fixas: 50, mes: '2026-09' }, [], hoje)).toBeNull();
+    expect(calcularConta({ valor: 400, kwh: 0, fixas: 0, mes: '2026-09' }, [], hoje)).toBeNull();
+  });
+
+  it('o acumulado começa no mês da conta se o mês seguinte ainda não chegou', () => {
+    expect(calcularConta({ valor: 400, kwh: 400, fixas: 0, mes: '2026-10' }, [], hoje)?.desde).toBe('2026-10-01');
   });
 });

@@ -91,3 +91,34 @@ export function agruparMeses(ds: Dia[]) {
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([ym, dias]) => ({ ym, ano: Number(ym.slice(0, 4)), mes: Number(ym.slice(5)) - 1, dias, k: soma(dias), n: dias.length }));
 }
+
+export type ContaNumeros = { valor: number; kwh: number; fixas: number; mes: string };
+
+/**
+ * A partir da conta de luz (valor, kWh e taxas fixas de um mês AAAA-MM) calcula a tarifa
+ * e a fatia que foi do ar-condicionado, com os dias que o app tem daquele mês.
+ */
+export function calcularConta(c: ContaNumeros, dias: Dia[], hoje: Date) {
+  if (!(c.kwh > 0) || !(c.valor - c.fixas > 0) || !/^\d{4}-\d{2}$/.test(c.mes)) return null;
+  const tarifa = (c.valor - c.fixas) / c.kwh;
+  const ano = Number(c.mes.slice(0, 4));
+  const mes0 = Number(c.mes.slice(5)) - 1;
+  const dm = doMes(dias, ano, mes0);
+  const diasDoMes = diasNoMes(ano, mes0);
+  const cobertura = dm.length / diasDoMes;
+  const kwhAr = soma(dm);
+  const mesCheio = cobertura >= 0.3 ? kwhAr / cobertura : null; // estimativa do mês inteiro
+  const seguinte = new Date(ano, mes0 + 1, 1);
+  return {
+    tarifa,
+    kwhAr,
+    custoAr: kwhAr * tarifa,
+    share: kwhAr / c.kwh,
+    diasComDado: dm.length,
+    diasDoMes,
+    cobertura,
+    shareMesCheio: mesCheio != null ? mesCheio / c.kwh : null,
+    custoMesCheio: mesCheio != null ? mesCheio * tarifa : null,
+    desde: ymd(seguinte > hoje ? new Date(ano, mes0, 1) : seguinte),
+  };
+}
