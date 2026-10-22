@@ -68,18 +68,20 @@ export default function Inicio(p: Props) {
   const prevKwh = previsaoCiclo(per.noCiclo, hojeStr, per.totalDias);
   const prevReais = prevKwh != null ? prevKwh * tarifaMes : null;
   const meta = (cfg.goalType === 'R$' ? parseNum(cfg.goal) : parseNum(cfg.goalKwh) * tarifaMes) || 1;
-  const estado: 'ok' | 'warn' | 'over' = gasto >= meta ? 'over' : prevReais != null && prevReais > meta ? 'warn' : 'ok';
+  const passou = gasto >= meta;
+  const estado: 'ok' | 'warn' | 'over' =
+    passou && cfg.alert100 ? 'over' : passou || (prevReais != null && prevReais > meta) || (cfg.alert80 && gasto >= meta * 0.8) ? 'warn' : 'ok';
   const corMeta = estado === 'over' ? 'var(--red)' : estado === 'warn' ? 'var(--amber-fill)' : 'var(--green)';
   const escala = Math.max(meta, prevReais ?? 0, gasto) * 1.08;
   const venceEm = MONTHS[Number(per.ciclo.fim.slice(5, 7)) % 12];
   const diff = prevReais != null ? Math.abs(prevReais - meta) : 0;
   const frase =
-    estado === 'over'
+    passou
       ? `Você já passou ${brl0(gasto - meta)} da meta de ${brl0(meta)}.${prevReais != null ? ` No ritmo atual, a conta do ar fecha em ${brl0(prevReais)}.` : ''}`
       : prevReais != null
         ? `No ritmo atual, a conta do ar fecha em ${brl0(prevReais)}, ${brl0(diff)} ${estado === 'warn' ? 'acima da' : 'abaixo da'} sua meta de ${brl0(meta)}.`
         : `A previsão aparece a partir do 3º dia desta conta. Sua meta é ${brl0(meta)}.`;
-  const rotuloEstado = estado === 'over' ? 'Meta estourada' : estado === 'warn' ? 'Previsão acima da meta' : 'Dentro da meta';
+  const rotuloEstado = estado === 'over' ? 'Meta estourada' : passou ? 'Passou da meta' : estado === 'warn' ? (prevReais != null && prevReais > meta ? 'Previsão acima da meta' : 'Chegando perto da meta') : 'Dentro da meta';
 
   // ---- Últimos 7 dias ----
   const dias7 = Array.from({ length: 7 }, (_, i) => ymd(addDias(hoje, i - 6)));
@@ -207,7 +209,7 @@ export default function Inicio(p: Props) {
               )}
 
               <div style={{ borderRadius: 16, padding: '12px 14px', display: 'grid', gap: 4, background: prevReais == null && estado === 'ok' ? 'var(--surface2)' : estado === 'over' ? 'var(--red-soft)' : estado === 'warn' ? 'var(--amber-soft)' : 'var(--green-soft)' }}>
-                {(prevReais != null || estado === 'over') && (
+                {(prevReais != null || passou || estado === 'warn') && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '.06em', color: estado === 'over' ? 'var(--red)' : estado === 'warn' ? 'var(--amber)' : 'var(--green)' }}>
                     {estado === 'over' ? <X size={16} /> : estado === 'warn' ? <TriangleAlert size={16} /> : <Check size={16} />} {rotuloEstado}
                   </div>

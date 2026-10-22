@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   agruparCiclos, calcularConta, cicloAnterior, cicloDe, cicloPorRef, contaAtual, custoDe, delta, diasEntre, faixasSemana,
-  fatiaDaConta, mediaAnterior, mediaPorDiaSemana, periodosCiclo, previsaoCiclo, projecaoCiclo, refsDeCiclos, tarifaDoMes,
+  fatiaDaConta, mediaAnterior, mediaPorDiaSemana, periodosCiclo, previsaoCiclo, projecaoCiclo, refsDeCiclos, tarifaDaUltimaConta, tarifaDoMes,
 } from '../src/lib/stats';
 import { parseNum } from '../src/lib/fmt';
 import { CONTAS_INICIAIS, TARIFAS_INICIAIS } from '../src/lib/contas-iniciais';
@@ -273,5 +273,19 @@ describe('ciclos conhecidos', () => {
     const ds = [dia('2026-09-22', 5), dia('2026-10-20', 5)];
     expect(refsDeCiclos(['2026-08', '2026-09', '2026-10'], ds, new Date(2026, 9, 22), 16)).toEqual(['2026-08', '2026-09', '2026-10', '2026-11']);
     expect(refsDeCiclos([], [], new Date(2026, 9, 22), 16)).toEqual(['2026-11']);
+  });
+});
+
+describe('preço do kWh pela última conta', () => {
+  it('usa a conta mais recente com consumo', () => {
+    const r = tarifaDaUltimaConta(CONTAS_INICIAIS);
+    expect(r?.mes).toBe('2026-10');
+    expect(r?.tarifa).toBeCloseTo(1.1944, 3);
+  });
+
+  it('ignora contas sem kWh e devolve null sem nenhuma', () => {
+    const sem = { ...CONTAS_INICIAIS['2026-10'], kwh: 0 };
+    expect(tarifaDaUltimaConta({ '2026-10': sem, '2026-09': CONTAS_INICIAIS['2026-09'] })?.mes).toBe('2026-09');
+    expect(tarifaDaUltimaConta({})).toBeNull();
   });
 });
