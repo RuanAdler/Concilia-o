@@ -1,4 +1,8 @@
 import { randomUUID } from 'node:crypto';
+import { type Device, type Comando, corpoDoComando, parseEstado } from './device';
+import { type DiaEnergia, parseEnergia } from './energia';
+import { ymd } from './fmt';
+import { mockDispositivo, mockComando, mockUso } from './mock';
 
 // Chave pública da API ThinQ Connect (a mesma da documentação oficial da LG).
 const API_KEY = 'v6GFvkweNo7DK7yD3ylIZ9w52aKBU0eJ7wLXkSR3';
@@ -9,10 +13,7 @@ export class ThinqError extends Error {
   }
 }
 
-function base(): string {
-  const regiao = process.env.LG_REGION || 'aic';
-  return `https://api-${regiao}.lgthinq.com`;
-}
+export const modoMock = () => Boolean(process.env.LG_MOCK) || !process.env.LG_PAT;
 
 function headers(): Record<string, string> {
   const token = process.env.LG_PAT;
@@ -28,25 +29,69 @@ function headers(): Record<string, string> {
   };
 }
 
-export async function chamar(caminho: string): Promise<unknown> {
-  const res = await fetch(`${base()}${caminho}`, { headers: headers(), cache: 'no-store' });
+export async function chamar(caminho: string, corpo?: unknown): Promise<unknown> {
+  const url = `https://api-${process.env.LG_REGION || 'aic'}.lgthinq.com${caminho}`;
+  const res = await fetch(url, {
+    method: corpo === undefined ? 'GET' : 'POST',
+    headers: headers(),
+    body: corpo === undefined ? undefined : JSON.stringify(corpo),
+    cache: 'no-store',
+    signal: AbortSignal.timeout(9000),
+  });
   const texto = await res.text();
-  let corpo: unknown = texto;
+  let json: unknown = texto;
   try {
-    corpo = JSON.parse(texto);
+    json = JSON.parse(texto);
   } catch {
     // resposta não-JSON: devolve o texto cru no erro
   }
-  if (!res.ok) throw new ThinqError(`LG respondeu ${res.status}`, res.status, corpo);
-  return corpo;
+  if (!res.ok) throw new ThinqError(`LG respondeu ${res.status}`, res.status, json);
+  return json;
 }
 
-export const listarDispositivos = () => chamar('/devices');
-export const estadoDoDispositivo = (id: string) => chamar(`/devices/${encodeURIComponent(id)}/state`);
+export const textoDoErro = (e: unknown) =>
+  e instanceof ThinqError ? `${e.message}${e.corpo ? `: ${JSON.stringify(e.corpo)}` : ''}` : String(e);
 
-export const perfilDeEnergia = (id: string) => chamar(`/devices/energy/${encodeURIComponent(id)}/profile`);
+type Aparelho = { id: string; nome: string };
+let cache: Aparelho | null = null;
 
-export function energiaDoDispositivo(id: string, propriedade: string, periodo: string, de: string, ate: string) {
-  const q = new URLSearchParams({ property: propriedade, period: periodo, startDate: de, endDate: ate });
-  return chamar(`/devices/energy/${encodeURIComponent(id)}/usage?${q}`);
+async function aparelho(): Promise<Aparelho> {
+  if (cache) return cache;
+  const lista = ((await chamar('/devices')) as { response?: unknown }).response;
+  if (!Array.isArray(lista) || !lista.length) throw new ThinqError('Nenhum aparelho encontrado na conta');
+  const tipo = (d: unknown) => String((d as { deviceInfo?: { deviceType?: string } }).deviceInfo?.deviceType);
+  const ar = (lista.find((d) => tipo(d).includes('AIR_CONDITIONER')) ?? lista[0]) as {
+    deviceId: string;
+    deviceInfo?: { alias?: string };
+  };
+  cache = { id: ar.deviceId, nome: ar.deviceInfo?.alias ?? 'Ar-condicionado' };
+  return cache;
+}
+
+export async function lerDispositivo(): Promise<Device> {
+  if (modoMock()) return mockDispositivo();
+  const { id, nome } = await aparelho();
+  return parseEstado(nome, await chamar(`/devices/${encodeURIComponent(id)}/state`));
+}
+
+export async function enviarComando(c: Comando): Promise<void> {
+  if (modoMock()) return mockComando(c);
+  const { id } = await aparelho();
+  await chamar(`/devices/${encodeURIComponent(id)}/control`, corpoDoComando(c));
+}
+
+/** Consumo diário dos últimos 30 dias. */
+export async function lerUso(): Promise<DiaEnergia[]> {
+  if (modoMock()) return mockUso();
+  const { id } = await aparelho();
+  const perfil = (await chamar(`/devices/energy/${encodeURIComponent(id)}/profile`)) as {
+    response?: { result?: { property?: unknown } };
+  };
+  const props = perfil.response?.result?.property;
+  const propriedade = Array.isArray(props) ? props[0] : props;
+  if (typeof propriedade !== 'string') throw new ThinqError('Perfil de energia sem propriedade reconhecida');
+  const hoje = new Date();
+  const ini = new Date(hoje.getTime() - 30 * 86_400_000);
+  const q = new URLSearchParams({ property: propriedade, period: 'DAILY', startDate: ymd(ini), endDate: ymd(hoje) });
+  return parseEnergia(await chamar(`/devices/energy/${encodeURIComponent(id)}/usage?${q}`));
 }
