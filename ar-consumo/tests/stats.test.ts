@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { agruparMeses, calcularConta, contaAtual, fatiaDaConta, custoDe, delta, faixasSemana, mediaAnterior, mediaPorDiaSemana, periodos, projecaoMes, tarifaDoMes } from '../src/lib/stats';
+import { agruparMeses, calcularConta, diasEntre, contaAtual, fatiaDaConta, custoDe, delta, faixasSemana, mediaAnterior, mediaPorDiaSemana, periodos, projecaoMes, tarifaDoMes } from '../src/lib/stats';
 import { parseNum } from '../src/lib/fmt';
 
 const dia = (data: string, kwh: number) => ({ data, kwh });
@@ -142,5 +142,28 @@ describe('contas salvas', () => {
     expect(contaAtual(salva, mais)).toMatchObject({ kwhAr: 120, diasComDado: 30 });
     // histórico apagado: continua valendo o registro salvo
     expect(contaAtual(salva, [])).toMatchObject({ kwhAr: 60, diasComDado: 15 });
+  });
+});
+
+describe('conta com datas de leitura', () => {
+  const todos = Array.from({ length: 61 }, (_, i) => dia(new Date(2026, 8, 1 + i).toISOString().slice(0, 10), 5));
+
+  it('conta o ar só entre as leituras (início inclusive, fim exclusive)', () => {
+    const r = calcularConta({ valor: 367.89, kwh: 286, fixas: 26.3, mes: '2026-10', inicio: '2026-09-16', fim: '2026-10-16' }, todos, hoje);
+    expect(diasEntre('2026-09-16', '2026-10-16')).toBe(30);
+    expect(r?.diasDoMes).toBe(30);
+    expect(r?.diasComDado).toBe(30);
+    expect(r?.kwhAr).toBe(150);
+    expect(r?.tarifa).toBeCloseTo(1.1944, 3);
+    expect(r?.desde).toBe('2026-10-16');
+  });
+
+  it('recusa leitura atual antes da anterior', () => {
+    expect(calcularConta({ valor: 100, kwh: 100, fixas: 0, mes: '2026-10', inicio: '2026-10-16', fim: '2026-09-16' }, todos, hoje)).toBeNull();
+  });
+
+  it('a conta salva usa o período ao atualizar', () => {
+    const salva = { mes: '2026-10', valor: 367.89, kwh: 286, fixas: 26.3, kwhAr: 100, diasComDado: 20, diasDoMes: 30, inicio: '2026-09-16', fim: '2026-10-16', salvoEm: 0 };
+    expect(contaAtual(salva, todos)).toMatchObject({ kwhAr: 150, diasComDado: 30 });
   });
 });

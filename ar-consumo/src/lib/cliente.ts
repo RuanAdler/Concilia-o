@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { Tarifas } from './stats';
 
-export type Conta = { valor: string; kwh: string; fixas: string; mes: string };
+export type Conta = { valor: string; kwh: string; fixas: string; mes: string; inicio: string; fim: string };
 
 export type Config = {
   tariffMode: 'direto' | 'conta';
@@ -36,7 +36,7 @@ export const CONFIG_PADRAO: Config = {
   alert100: true,
   theme: 'auto',
   nome: '',
-  conta: { valor: '', kwh: '', fixas: '0', mes: '' },
+  conta: { valor: '', kwh: '', fixas: '0', mes: '', inicio: '', fim: '' },
   tarifas: {},
   tarifaDefinida: false,
 };

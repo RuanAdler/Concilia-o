@@ -118,7 +118,7 @@ export default function Inicio(p: Props) {
   const fSalva = salvaRecente ? fatiaDaConta(contaAtual(salvaRecente, dias)) : null;
   const mesPrev = `${new Date(hoje.getFullYear(), hoje.getMonth() - 1, 1).getFullYear()}-${String(((hoje.getMonth() + 11) % 12) + 1).padStart(2, '0')}`;
   const rascunho = !salvaRecente && cfg.conta.valor && cfg.conta.kwh
-    ? calcularConta({ valor: parseNum(cfg.conta.valor), kwh: parseNum(cfg.conta.kwh), fixas: parseNum(cfg.conta.fixas), mes: cfg.conta.mes || mesPrev }, dias, hoje)
+    ? calcularConta({ valor: parseNum(cfg.conta.valor), kwh: parseNum(cfg.conta.kwh), fixas: parseNum(cfg.conta.fixas), mes: cfg.conta.mes || mesPrev, ...(cfg.conta.inicio && cfg.conta.fim ? { inicio: cfg.conta.inicio, fim: cfg.conta.fim } : {}) }, dias, hoje)
     : null;
   const contaMes = MONTHS[Number((salvaRecente?.mes ?? (cfg.conta.mes || mesPrev)).slice(5, 7)) - 1];
   const fatia = fSalva ? fSalva.share : rascunho ? (rascunho.cobertura >= 0.95 ? rascunho.share : rascunho.shareMesCheio) : null;

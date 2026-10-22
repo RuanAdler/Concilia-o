@@ -233,12 +233,12 @@ export default function App() {
       .map((c) => {
         const a = contaAtual(c, dias);
         const f = fatiaDaConta(a);
-        return `${a.mes};${nf(a.valor, 2)};${nf(a.kwh, 1)};${nf(a.fixas, 2)};${nf(a.kwhAr, 2)};${f.share != null ? nf(f.share * 100, 1) : ''};${f.estimada ? 'estimada' : 'completa'}`;
+        return `${a.mes};${a.inicio ?? ''};${a.fim ?? ''};${nf(a.valor, 2)};${nf(a.kwh, 1)};${nf(a.fixas, 2)};${nf(a.kwhAr, 2)};${f.share != null ? nf(f.share * 100, 1) : ''};${f.estimada ? 'estimada' : 'completa'}`;
       });
     const linhas = [
       'data;kwh;reais',
       ...dias.map((x) => `${x.data};${nf(x.kwh, 3)};${nf(x.kwh * tarifaDoMes(cfg.tarifas, tarifa, x.data.slice(0, 7)), 2)}`),
-      ...(blocoContas.length ? ['', 'mes;valor_conta;kwh_conta;taxas_fixas;kwh_ar;fatia_ar_pct;cobertura', ...blocoContas] : []),
+      ...(blocoContas.length ? ['', 'mes;inicio_leitura;fim_leitura;valor_conta;kwh_conta;taxas_fixas;kwh_ar;fatia_ar_pct;cobertura', ...blocoContas] : []),
     ].join('\n');
     try {
       const a = document.createElement('a');
