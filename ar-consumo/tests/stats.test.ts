@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { agruparMeses, calcularConta, diasEntre, contaAtual, fatiaDaConta, custoDe, delta, faixasSemana, mediaAnterior, mediaPorDiaSemana, periodos, projecaoMes, tarifaDoMes } from '../src/lib/stats';
+import {
+  agruparCiclos, calcularConta, cicloAnterior, cicloDe, cicloPorRef, contaAtual, custoDe, delta, diasEntre, faixasSemana,
+  fatiaDaConta, mediaAnterior, mediaPorDiaSemana, periodosCiclo, projecaoCiclo, tarifaDoMes,
+} from '../src/lib/stats';
 import { parseNum } from '../src/lib/fmt';
 
 const dia = (data: string, kwh: number) => ({ data, kwh });
@@ -36,27 +39,49 @@ describe('tarifaDoMes', () => {
   });
 });
 
-describe('periodos e projeção', () => {
-  it('separa 7 dias, mês, mês anterior e acumulado', () => {
+describe('ciclo da conta (leitura no dia 16)', () => {
+  it('acha o ciclo que contém a data', () => {
+    expect(cicloDe(new Date(2026, 9, 22), 16)).toEqual({ inicio: '2026-10-16', fim: '2026-11-16', ref: '2026-11' });
+    expect(cicloDe(new Date(2026, 9, 16), 16).inicio).toBe('2026-10-16');
+    expect(cicloDe(new Date(2026, 9, 15), 16)).toEqual({ inicio: '2026-09-16', fim: '2026-10-16', ref: '2026-10' });
+  });
+
+  it('vira o ano', () => {
+    expect(cicloDe(new Date(2026, 11, 20), 16)).toEqual({ inicio: '2026-12-16', fim: '2027-01-16', ref: '2027-01' });
+    expect(cicloDe(new Date(2027, 0, 5), 16)).toEqual({ inicio: '2026-12-16', fim: '2027-01-16', ref: '2027-01' });
+  });
+
+  it('a conta de referência 10/2026 cobre de 16/09 a 16/10', () => {
+    const c = cicloPorRef('2026-10', 16);
+    expect(c).toEqual({ inicio: '2026-09-16', fim: '2026-10-16', ref: '2026-10' });
+    expect(diasEntre(c.inicio, c.fim)).toBe(30);
+    expect(cicloAnterior(cicloDe(new Date(2026, 9, 22), 16), 16)).toEqual(c);
+  });
+});
+
+describe('periodosCiclo e projeção', () => {
+  it('separa o ciclo atual, o anterior no mesmo ponto e o acumulado', () => {
     const ds = [
-      dia('2026-09-10', 5), dia('2026-09-25', 7),
-      dia('2026-10-01', 2), dia('2026-10-20', 3), dia('2026-10-22', 4),
+      dia('2026-09-10', 9), dia('2026-09-16', 5), dia('2026-09-20', 7), dia('2026-10-10', 3),
+      dia('2026-10-16', 2), dia('2026-10-20', 3), dia('2026-10-22', 4),
     ];
-    const p = periodos(ds, hoje, '2026-10-01', 1);
-    expect(p.ult7.map((d) => d.data)).toEqual(['2026-10-20', '2026-10-22']);
-    expect(p.mes).toHaveLength(3);
-    expect(p.mesAnt.map((d) => d.data)).toEqual(['2026-09-10']);
+    const p = periodosCiclo(ds, hoje, 16, '2026-10-16', 1);
+    expect(p.ciclo.inicio).toBe('2026-10-16');
+    expect(p.decorridos).toBe(7); // 16 a 22 de outubro
+    expect(p.totalDias).toBe(31);
+    expect(p.noCiclo.map((d) => d.data)).toEqual(['2026-10-16', '2026-10-20', '2026-10-22']);
+    expect(p.cicloAnt.map((d) => d.data)).toEqual(['2026-09-16', '2026-09-20']);
+    expect(p.cicloAntCompleto).toBe(false);
     expect(p.acumKwh).toBe(10);
-    expect(p.mesAntCompleto).toBe(false);
   });
 
-  it('considera o mês anterior comparável quando o histórico cobre os dias', () => {
-    const set = Array.from({ length: 20 }, (_, i) => dia(`2026-09-${String(i + 1).padStart(2, '0')}`, 1));
-    expect(periodos(set, hoje, '2026-09-01', 0).mesAntCompleto).toBe(true);
+  it('considera o ciclo anterior comparável quando o histórico cobre os dias', () => {
+    const ant = Array.from({ length: 7 }, (_, i) => dia(`2026-09-${String(16 + i).padStart(2, '0')}`, 1));
+    expect(periodosCiclo(ant, hoje, 16, '2026-10-16', 0).cicloAntCompleto).toBe(true);
   });
 
-  it('projeta o mês pelo ritmo até hoje', () => {
-    expect(projecaoMes(22, hoje)).toBeCloseTo(31);
+  it('projeta o ciclo pelo ritmo até hoje', () => {
+    expect(projecaoCiclo(7, 7, 31)).toBeCloseTo(31);
   });
 });
 
@@ -72,9 +97,12 @@ describe('agrupamentos', () => {
     expect(m[6]).toEqual({ w: 0, v: 9 });
   });
 
-  it('agrupa por mês em ordem', () => {
-    const g = agruparMeses([dia('2026-10-01', 1), dia('2026-09-30', 2), dia('2026-10-02', 3)]);
-    expect(g.map((x) => [x.ym, x.k, x.n])).toEqual([['2026-09', 2, 1], ['2026-10', 4, 2]]);
+  it('agrupa por ciclo da conta, em ordem', () => {
+    const g = agruparCiclos([dia('2026-10-17', 1), dia('2026-10-15', 2), dia('2026-10-20', 3), dia('2026-09-20', 5)], 16);
+    expect(g.map((x) => [x.ym, x.k, x.n, x.inicio, x.totalDias])).toEqual([
+      ['2026-10', 7, 2, '2026-09-16', 30],
+      ['2026-11', 4, 2, '2026-10-16', 31],
+    ]);
   });
 });
 

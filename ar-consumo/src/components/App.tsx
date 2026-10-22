@@ -7,7 +7,7 @@ import type { Comando, Device, Mode } from '@/lib/device';
 import { MODES } from '@/lib/device';
 import { mesclarDias, type DiaEnergia } from '@/lib/energia';
 import { dl, hhmm, nf, parseNum, parseYmd, ymd } from '@/lib/fmt';
-import { fatiaDaConta, contaAtual, mapaParaDias, tarifaDoMes, type ContaSalva } from '@/lib/stats';
+import { cicloDe, clampDia, contaAtual, fatiaDaConta, mapaParaDias, tarifaDoMes, type ContaSalva } from '@/lib/stats';
 import Ajustes from './Ajustes';
 import Contas from './Contas';
 import Historico from './Historico';
@@ -67,7 +67,8 @@ export default function App() {
   const hoje = useMemo(() => new Date(agora), [agora]);
   const tarifa = cfg.tariffMode === 'direto' ? parseNum(cfg.tariff) : parseNum(cfg.billKwh) ? parseNum(cfg.billValue) / parseNum(cfg.billKwh) : 0;
   const primeiro = dias[0]?.data ?? ymd(hoje);
-  const dados: Dados = { cfg, dias, hoje, tarifa, tarifas: cfg.tarifas, desde: cfg.since || primeiro, base: parseNum(cfg.base), primeiro, contas };
+  const diaLeitura = clampDia(parseInt(cfg.diaLeitura, 10));
+  const dados: Dados = { cfg, dias, hoje, tarifa, diaLeitura, tarifas: cfg.tarifas, desde: cfg.since || cicloDe(hoje, diaLeitura).inicio, base: parseNum(cfg.base), primeiro, contas };
 
   // guarda a tarifa de cada mês: mudar o valor não reescreve o custo dos meses passados
   useEffect(() => {
@@ -317,7 +318,7 @@ export default function App() {
           />
         )}
         {aba === 'hist' && <Historico d={dados} />}
-        {aba === 'contas' && <Contas cfg={cfg} setCfg={setCfg} dias={dias} hoje={hoje} contas={contas} setContas={setContas} />}
+        {aba === 'contas' && <Contas cfg={cfg} setCfg={setCfg} dias={dias} hoje={hoje} diaLeitura={diaLeitura} contas={contas} setContas={setContas} />}
         {aba === 'set' && (
           <Ajustes
             cfg={cfg}

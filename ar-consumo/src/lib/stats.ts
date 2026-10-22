@@ -46,21 +46,58 @@ export function tarifaDoMes(tarifas: Tarifas, atual: number, ym: string): number
 export const custoDe = (ds: Dia[], tarifas: Tarifas, atual: number) =>
   ds.reduce((s, d) => s + d.kwh * tarifaDoMes(tarifas, atual, d.data.slice(0, 7)), 0);
 
-export function periodos(ds: Dia[], hoje: Date, desde: string, base: number) {
-  const h = ymd(hoje);
-  const ult7 = ds.filter((d) => d.data >= ymd(addDias(hoje, -6)) && d.data <= h);
-  const ant7 = ds.filter((d) => d.data >= ymd(addDias(hoje, -13)) && d.data <= ymd(addDias(hoje, -7)));
-  const mes = doMes(ds, hoje.getFullYear(), hoje.getMonth()).filter((d) => d.data <= h);
-  const pm = new Date(hoje.getFullYear(), hoje.getMonth() - 1, 1);
-  const mesAnt = doMes(ds, pm.getFullYear(), pm.getMonth()).filter((d) => Number(d.data.slice(8)) <= hoje.getDate());
-  const acum = ds.filter((d) => d.data >= desde && d.data <= h);
-  // só compara com o mês anterior se o histórico dele cobre quase todos os dias já decorridos neste mês
-  const mesAntCompleto = mesAnt.length >= Math.ceil(hoje.getDate() * 0.8);
-  return { ult7, ant7: ant7.length === 7 ? ant7 : [], mes, mesAnt, mesAntCompleto, acum, acumKwh: soma(acum) + base };
+export const DIA_LEITURA_PADRAO = 16;
+
+/** Dia da leitura válido: de 1 a 28, para existir em todos os meses. */
+export const clampDia = (n: number) => (Number.isFinite(n) ? Math.min(28, Math.max(1, Math.round(n))) : DIA_LEITURA_PADRAO);
+
+/** Ciclo de faturamento: do dia da leitura (inclusive) até a leitura seguinte (exclusive). `ref` é o mês da conta. */
+export type Ciclo = { inicio: string; fim: string; ref: string };
+
+const noDia = (ano: number, mes0: number, dia: number) => ymd(new Date(ano, mes0, dia));
+
+export function cicloDe(data: Date, dia: number): Ciclo {
+  const d = clampDia(dia);
+  const a = data.getFullYear();
+  const m = data.getMonth();
+  const [mi, mf] = data.getDate() >= d ? [m, m + 1] : [m - 1, m];
+  const fim = noDia(a, mf, d);
+  return { inicio: noDia(a, mi, d), fim, ref: fim.slice(0, 7) };
 }
 
-export const projecaoMes = (kwhMes: number, hoje: Date) =>
-  (kwhMes / hoje.getDate()) * diasNoMes(hoje.getFullYear(), hoje.getMonth());
+/** Ciclo de uma conta pelo mês de referência (AAAA-MM): termina na leitura daquele mês. */
+export function cicloPorRef(ref: string, dia: number): Ciclo {
+  const d = clampDia(dia);
+  const a = Number(ref.slice(0, 4));
+  const m = Number(ref.slice(5, 7)) - 1;
+  return { inicio: noDia(a, m - 1, d), fim: noDia(a, m, d), ref };
+}
+
+export function cicloAnterior(c: Ciclo, dia: number): Ciclo {
+  return cicloPorRef(c.inicio.slice(0, 7), dia);
+}
+
+export function periodosCiclo(ds: Dia[], hoje: Date, dia: number, desde: string, base: number) {
+  const h = ymd(hoje);
+  const ciclo = cicloDe(hoje, dia);
+  const ant = cicloAnterior(ciclo, dia);
+  const totalDias = diasEntre(ciclo.inicio, ciclo.fim);
+  const decorridos = diasEntre(ciclo.inicio, h) + 1; // conta o dia de hoje
+  const noCiclo = diasDoPeriodo(ds, ciclo.inicio, ciclo.fim).filter((d) => d.data <= h);
+  // mesma quantidade de dias do ciclo anterior, para comparar o que já passou
+  const cicloAnt = diasDoPeriodo(ds, ant.inicio, ymd(addDias(parseYmd(ant.inicio), decorridos)));
+  const ult7 = ds.filter((d) => d.data >= ymd(addDias(hoje, -6)) && d.data <= h);
+  const ant7 = ds.filter((d) => d.data >= ymd(addDias(hoje, -13)) && d.data <= ymd(addDias(hoje, -7)));
+  const acum = ds.filter((d) => d.data >= desde && d.data <= h);
+  return {
+    ciclo, ant, totalDias, decorridos, noCiclo, cicloAnt,
+    // só compara com o ciclo anterior se o histórico dele cobre quase todos os dias já decorridos
+    cicloAntCompleto: cicloAnt.length >= Math.ceil(decorridos * 0.8),
+    ult7, ant7: ant7.length === 7 ? ant7 : [], acum, acumKwh: soma(acum) + base,
+  };
+}
+
+export const projecaoCiclo = (kwh: number, decorridos: number, totalDias: number) => (kwh / decorridos) * totalDias;
 
 export function faixasSemana(ds: Dia[], dim: number) {
   const faixas: [number, number][] = [[1, 7], [8, 14], [15, 21], [22, 28], [29, dim]];
@@ -81,15 +118,28 @@ export function mediaPorDiaSemana(ds: Dia[]) {
   });
 }
 
-export function agruparMeses(ds: Dia[]) {
-  const mapa = new Map<string, Dia[]>();
+/** Agrupa os dias por ciclo da conta, do mais antigo para o mais novo. */
+export function agruparCiclos(ds: Dia[], dia: number) {
+  const mapa = new Map<string, { ciclo: Ciclo; dias: Dia[] }>();
   for (const d of ds) {
-    const k = d.data.slice(0, 7);
-    mapa.set(k, [...(mapa.get(k) ?? []), d]);
+    const ciclo = cicloDe(parseYmd(d.data), dia);
+    const g = mapa.get(ciclo.ref);
+    if (g) g.dias.push(d);
+    else mapa.set(ciclo.ref, { ciclo, dias: [d] });
   }
-  return [...mapa.entries()]
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([ym, dias]) => ({ ym, ano: Number(ym.slice(0, 4)), mes: Number(ym.slice(5)) - 1, dias, k: soma(dias), n: dias.length }));
+  return [...mapa.values()]
+    .sort((a, b) => a.ciclo.ref.localeCompare(b.ciclo.ref))
+    .map(({ ciclo, dias }) => ({
+      ym: ciclo.ref,
+      ano: Number(ciclo.ref.slice(0, 4)),
+      mes: Number(ciclo.ref.slice(5, 7)) - 1,
+      inicio: ciclo.inicio,
+      fim: ciclo.fim,
+      totalDias: diasEntre(ciclo.inicio, ciclo.fim),
+      dias,
+      k: soma(dias),
+      n: dias.length,
+    }));
 }
 
 export type ContaNumeros = { valor: number; kwh: number; fixas: number; mes: string; inicio?: string; fim?: string };

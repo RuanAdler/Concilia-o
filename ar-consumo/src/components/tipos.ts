@@ -9,6 +9,7 @@ export type Dados = {
   dias: Dia[];
   hoje: Date;
   tarifa: number;
+  diaLeitura: number;
   tarifas: Tarifas;
   desde: string;
   base: number;

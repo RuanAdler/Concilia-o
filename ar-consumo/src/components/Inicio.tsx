@@ -8,7 +8,7 @@ import type { ReactNode } from 'react';
 import { MODES, type Device, type Mode } from '@/lib/device';
 import { MONTHS, MON, WD, brl, brl0, cap, dl, hhmm, nf, parseNum, parseYmd } from '@/lib/fmt';
 import { useMontado } from '@/lib/cliente';
-import { calcularConta, contaAtual, fatiaDaConta, custoDe, delta, diasNoMes, mediaAnterior, periodos, projecaoMes, soma, tarifaDoMes } from '@/lib/stats';
+import { calcularConta, contaAtual, fatiaDaConta, custoDe, delta, mediaAnterior, periodosCiclo, projecaoCiclo, soma, tarifaDoMes } from '@/lib/stats';
 import { Barras, LinhaMedia, Spinner, card, rotulo } from './ui';
 import type { Cmd, Dados } from './tipos';
 
@@ -77,23 +77,23 @@ export default function Inicio(p: Props) {
         ? `Hoje está ${nf(-dHoje.r * 100, 0)}% abaixo da sua média de 30 dias (${nf(media30)} kWh). Abaixo do padrão recente.`
         : `Hoje está dentro da sua média de 30 dias (${nf(media30)} kWh).`;
 
-  const per = periodos(dias, hoje, d.desde, d.base);
+  const per = periodosCiclo(dias, hoje, d.diaLeitura, d.desde, d.base);
   const k7 = soma(per.ult7);
-  const kMes = soma(per.mes);
-  const kMesAnt = soma(per.mesAnt);
-  const nomeMes = cap(MONTHS[mesAtual]);
-  const nomeMesAnt = cap(MONTHS[(mesAtual + 11) % 12]);
+  const kCiclo = soma(per.noCiclo);
+  const kCicloAnt = soma(per.cicloAnt);
+  const nomeCiclo = `${dl(parseYmd(per.ciclo.inicio))} a ${dl(parseYmd(per.ciclo.fim))}`;
   const cartoes = [
     { rot: '7 dias', reais: custoDe(per.ult7, tarifas, tarifa), kwh: nf(k7), d: delta(k7, soma(per.ant7)) },
-    { rot: nomeMes, reais: custoDe(per.mes, tarifas, tarifa), kwh: nf(kMes), d: per.mesAntCompleto ? delta(kMes, kMesAnt) : null },
+    { rot: 'Ciclo atual', reais: custoDe(per.noCiclo, tarifas, tarifa), kwh: nf(kCiclo), d: per.cicloAntCompleto ? delta(kCiclo, kCicloAnt) : null },
     { rot: 'Acumulado', reais: custoDe(per.acum, tarifas, tarifa) + d.base * tarifaMes, kwh: nf(per.acumKwh, 0), d: null },
   ];
 
   // meta
   const emReais = cfg.goalType === 'R$';
   const meta = parseNum(emReais ? cfg.goal : cfg.goalKwh) || 1;
-  const gasto = emReais ? custoDe(per.mes, tarifas, tarifa) : kMes;
-  const proj = emReais ? projecaoMes(kMes, hoje) * tarifaMes : projecaoMes(kMes, hoje);
+  const gasto = emReais ? custoDe(per.noCiclo, tarifas, tarifa) : kCiclo;
+  const projKwh = projecaoCiclo(kCiclo, per.decorridos, per.totalDias);
+  const proj = emReais ? projKwh * tarifaMes : projKwh;
   const f = (v: number) => (emReais ? brl0(v) : `${nf(v, 0)} kWh`);
   const pct = gasto / meta;
   const projPct = proj / meta;
@@ -101,14 +101,14 @@ export default function Inicio(p: Props) {
   const corTexto = pct >= 1 ? 'var(--red)' : pct >= 0.8 || projPct > 1 ? 'var(--amber)' : 'var(--green)';
   const C = 2 * Math.PI * 38;
   const escala = Math.max(1, projPct * 1.08);
-  const restam = diasNoMes(hoje.getFullYear(), mesAtual) - hoje.getDate();
+  const restam = per.totalDias - per.decorridos;
   const msgMeta = pct >= 1
     ? `Meta estourada em ${f(gasto - meta)}`
     : projPct > 1
       ? `No ritmo atual, fecha ${nf((projPct - 1) * 100, 0)}% acima da meta`
       : `No ritmo atual, fecha ${nf((1 - projPct) * 100, 0)}% abaixo da meta`;
   const avisoMeta = pct >= 1 && cfg.alert100
-    ? { bg: 'var(--red-soft)', fg: 'var(--red)', t: `Meta de ${MONTHS[mesAtual]} estourada`, s: `${f(gasto)} gastos de ${f(meta)} · faltam ${restam} dias` }
+    ? { bg: 'var(--red-soft)', fg: 'var(--red)', t: 'Meta do ciclo estourada', s: `${f(gasto)} gastos de ${f(meta)} · faltam ${restam} dias` }
     : pct >= 0.8 && cfg.alert80
       ? { bg: 'var(--amber-soft)', fg: 'var(--amber)', t: `Você já usou ${nf(pct * 100, 0)}% da meta`, s: `Restam ${f(meta - gasto)} para ${restam} dias` }
       : null;
@@ -129,8 +129,8 @@ export default function Inicio(p: Props) {
   const kwhArTxt = fSalva ? nf(contaAtual(salvaRecente, dias).kwhAr, 0) : rascunho ? nf(rascunho.kwhAr, 0) : '';
 
   // mês × mês passado
-  const mx = Math.max(kMes, kMesAnt) || 1;
-  const comp = per.mesAntCompleto ? delta(kMes, kMesAnt) : null;
+  const mx = Math.max(kCiclo, kCicloAnt) || 1;
+  const comp = per.cicloAntCompleto ? delta(kCiclo, kCicloAnt) : null;
 
   // gráfico 30 dias
   const l30 = dias.slice(-30);
@@ -335,14 +335,14 @@ export default function Inicio(p: Props) {
                 <text x="46" y="63" textAnchor="middle" fontSize="10.5" fontWeight="700" fill="var(--muted)">da meta</text>
               </svg>
               <div>
-                <div style={{ fontSize: 13, fontWeight: 800, color: 'var(--muted)' }}>Meta de {MONTHS[mesAtual]} · {f(meta)}</div>
+                <div style={{ fontSize: 13, fontWeight: 800, color: 'var(--muted)' }}>Meta do ciclo · {f(meta)}</div>
                 <div style={{ fontSize: 24, fontWeight: 800 }}>{f(gasto)} gastos</div>
                 <div style={{ fontSize: 13, fontWeight: 700, color: corTexto }}>{msgMeta}</div>
               </div>
             </div>
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, fontWeight: 700, marginBottom: 8 }}>
-                <span>Projeção do mês no ritmo atual</span><span>{f(proj)}</span>
+                <span>Projeção do ciclo no ritmo atual</span><span>{f(proj)}</span>
               </div>
               <div style={{ position: 'relative', height: 12, borderRadius: 6, background: 'var(--surface2)' }}>
                 <div style={{ position: 'absolute', inset: 0, width: `${montado ? (projPct / escala) * 100 : 0}%`, background: corMeta, opacity: 0.35, borderRadius: 6, transition: 'width 1s cubic-bezier(.2,.8,.2,1)' }} />
@@ -350,7 +350,7 @@ export default function Inicio(p: Props) {
                 <div style={{ position: 'absolute', top: -3, bottom: -3, left: `calc(${100 / escala}% - 1px)`, width: 2, background: 'var(--ink)' }} />
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', marginTop: 6 }}>
-                <span>Dia {hoje.getDate()} de {diasNoMes(hoje.getFullYear(), mesAtual)}</span><span>Meta {f(meta)}</span>
+                <span>Dia {per.decorridos} de {per.totalDias} · {nomeCiclo}</span><span>Meta {f(meta)}</span>
               </div>
             </div>
           </section>
@@ -373,11 +373,11 @@ export default function Inicio(p: Props) {
 
           <section style={{ ...card(26, '18px 20px'), display: 'grid', gap: 12 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-              <span style={{ fontSize: 15, fontWeight: 800 }}>{nomeMes} × {nomeMesAnt.toLowerCase()}</span>
-              <span style={{ fontSize: 12, color: 'var(--muted)' }}>dias 1 a {hoje.getDate()}</span>
+              <span style={{ fontSize: 15, fontWeight: 800 }}>Ciclo atual × anterior</span>
+              <span style={{ fontSize: 12, color: 'var(--muted)' }}>dia {per.decorridos} do ciclo</span>
             </div>
-            {[{ l: MON[mesAtual].replace(/^./, (c) => c.toUpperCase()), k: kMes, bg: 'var(--accent)', reais: custoDe(per.mes, tarifas, tarifa) }, { l: MON[(mesAtual + 11) % 12].replace(/^./, (c) => c.toUpperCase()), k: kMesAnt, bg: 'var(--slate)', reais: custoDe(per.mesAnt, tarifas, tarifa) }].map((r) => (
-              <div key={r.l} style={{ display: 'grid', gridTemplateColumns: '44px 1fr auto', alignItems: 'center', gap: 10 }}>
+            {[{ l: dl(parseYmd(per.ciclo.inicio)), k: kCiclo, bg: 'var(--accent)', reais: custoDe(per.noCiclo, tarifas, tarifa) }, { l: dl(parseYmd(per.ant.inicio)), k: kCicloAnt, bg: 'var(--slate)', reais: custoDe(per.cicloAnt, tarifas, tarifa) }].map((r) => (
+              <div key={r.l} style={{ display: 'grid', gridTemplateColumns: '56px 1fr auto', alignItems: 'center', gap: 10 }}>
                 <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--muted)' }}>{r.l}</span>
                 <div style={{ height: 14, borderRadius: 7, background: 'var(--surface2)' }}>
                   <div style={{ height: '100%', borderRadius: 7, background: r.bg, width: `${montado ? (r.k / mx) * 100 : 0}%`, transition: 'width 1s cubic-bezier(.2,.8,.2,1)' }} />
@@ -387,10 +387,10 @@ export default function Inicio(p: Props) {
             ))}
             <div style={{ fontSize: 13, fontWeight: 700, color: comp ? (comp.subiu ? 'var(--amber)' : 'var(--green)') : 'var(--muted)' }}>
               {comp
-                ? `${comp.subiu ? '+' : '−'}${nf(comp.pct, 0)}% em relação ao mesmo período de ${MONTHS[(mesAtual + 11) % 12]}`
-                : kMesAnt
-                  ? `O histórico de ${MONTHS[(mesAtual + 11) % 12]} está incompleto, então não dá para comparar.`
-                  : `Sem dados de ${MONTHS[(mesAtual + 11) % 12]} para comparar.`}
+                ? `${comp.subiu ? '+' : '−'}${nf(comp.pct, 0)}% em relação ao mesmo ponto do ciclo anterior`
+                : kCicloAnt
+                  ? 'O histórico do ciclo anterior está incompleto, então não dá para comparar.'
+                  : 'Sem dados do ciclo anterior para comparar.'}
             </div>
           </section>
 

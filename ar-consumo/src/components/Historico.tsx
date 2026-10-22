@@ -4,7 +4,7 @@ import { CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useState } from 'react';
 import { MON, MONTHS, WD, WDL, brl, brl0, cap, dl, nf, parseYmd } from '@/lib/fmt';
 import { useMontado } from '@/lib/cliente';
-import { agruparMeses, custoDe, delta, diasNoMes, doMes, faixasSemana, mediaPorDiaSemana, projecaoMes, soma, tarifaDoMes } from '@/lib/stats';
+import { agruparCiclos, cicloDe, custoDe, delta, diasNoMes, doMes, faixasSemana, mediaPorDiaSemana, soma, tarifaDoMes } from '@/lib/stats';
 import { Barras, LinhaMedia, Seg, card } from './ui';
 import type { Dados } from './tipos';
 
@@ -72,7 +72,7 @@ export default function Historico({ d }: { d: Dados }) {
         { l: 'Média por dia', v: `${nf(media)} kWh`, s: `${brl(reais(dMes) / dMes.length)} por dia`, c: 'var(--ink)' },
         { l: 'Pior dia', v: `${nf(pior.kwh)} kWh`, s: `${cap(WD[parseYmd(pior.data).getDay()])}, ${dl(parseYmd(pior.data))}`, c: 'var(--amber)' },
         { l: 'Melhor dia', v: `${nf(melhor.kwh)} kWh`, s: `${cap(WD[parseYmd(melhor.data).getDay()])}, ${dl(parseYmd(melhor.data))}`, c: 'var(--green)' },
-        { l: 'Projeção', v: ehAtual ? brl0(projecaoMes(kMes, hoje) * tf(dMes[dMes.length - 1].data)) : '—', s: ehAtual ? 'fechamento no ritmo atual' : 'mês encerrado', c: 'var(--ink)' },
+        { l: 'Projeção', v: ehAtual ? brl0((kMes / hoje.getDate()) * dim * tf(dMes[dMes.length - 1].data)) : '—', s: ehAtual ? 'fechamento no ritmo atual' : 'mês encerrado', c: 'var(--ink)' },
       ]
     : [];
 
@@ -82,7 +82,8 @@ export default function Historico({ d }: { d: Dados }) {
   const mxSemana = Math.max(...diasSemana.map((x) => x.v), 1);
   const topSemana = diasSemana.reduce((a, x) => (x.v > a.v ? x : a), diasSemana[0]);
 
-  const meses = agruparMeses(dias);
+  const meses = agruparCiclos(dias, d.diaLeitura);
+  const cicloAtualRef = cicloDe(hoje, d.diaLeitura).ref;
   const mxMes = Math.max(...meses.map((m) => m.k), 1);
   const mxMesR = Math.max(...meses.map((m) => reais(m.dias)), 1);
 
@@ -212,7 +213,7 @@ export default function Historico({ d }: { d: Dados }) {
               <div style={{ display: 'flex', alignItems: 'flex-end', gap: 14, height: 170 }}>
                 {meses.slice(-6).map((m) => {
                   const r = reais(m.dias);
-                  const emAndamento = m.ano === hoje.getFullYear() && m.mes === hoje.getMonth();
+                  const emAndamento = m.ym === cicloAtualRef;
                   return (
                     <div key={m.ym} style={{ flex: 1, height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', alignItems: 'center', gap: 4 }}>
                       <div style={{ display: 'flex', alignItems: 'flex-end', gap: 4, width: '100%', height: '82%' }}>
@@ -233,10 +234,10 @@ export default function Historico({ d }: { d: Dados }) {
               {meses.slice().reverse().map((m, i, arr) => {
                 const prev = arr[i + 1];
                 const dd = prev ? delta(m.k / m.n, prev.k / prev.n) : null;
-                const emAndamento = m.ano === hoje.getFullYear() && m.mes === hoje.getMonth();
+                const emAndamento = m.ym === cicloAtualRef;
                 return (
                   <div key={m.ym} style={{ display: 'grid', gridTemplateColumns: '1.3fr .8fr 1fr .7fr', alignItems: 'center', gap: 6, minHeight: 56, borderBottom: i < arr.length - 1 ? '1px solid var(--line)' : 'none' }}>
-                    <div><div style={{ fontSize: 14, fontWeight: 800 }}>{cap(MONTHS[m.mes])}</div><div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{m.n} dias{emAndamento ? ' · em andamento' : ''}</div></div>
+                    <div><div style={{ fontSize: 14, fontWeight: 800 }}>{cap(MONTHS[m.mes])}</div><div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{dl(parseYmd(m.inicio))} a {dl(parseYmd(m.fim))} · {m.n} dias{emAndamento ? ' · em andamento' : ''}</div></div>
                     <span style={{ fontSize: 13, fontWeight: 700 }}>{nf(m.k / m.n)} kWh/dia</span>
                     <span style={{ fontSize: 14, fontWeight: 800, textAlign: 'right' }}>{brl0(reais(m.dias))}</span>
                     <span style={{ fontSize: 13, fontWeight: 800, textAlign: 'right', color: dd ? (dd.subiu ? 'var(--amber)' : 'var(--green)') : 'var(--muted)' }}>{dd ? `${dd.subiu ? '+' : '−'}${nf(dd.pct, 0)}%` : '—'}</span>
@@ -244,7 +245,7 @@ export default function Historico({ d }: { d: Dados }) {
                 );
               })}
             </section>
-            <div style={{ fontSize: 12, color: 'var(--muted)' }}>* mês em andamento. A variação (Δ) compara a média por dia, já que o primeiro e o último meses podem estar incompletos.</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)' }}>Cada linha é um ciclo da conta de luz (de uma leitura à outra), com o nome do mês da conta. * ciclo em andamento. A variação (Δ) compara a média por dia, já que o primeiro e o último ciclos podem estar incompletos.</div>
           </>
         )
       )}

@@ -4,7 +4,7 @@ import { Pencil, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import type { Config } from '@/lib/cliente';
 import { MON, MONTHS, brl, brl0, cap, dl, nf, parseNum, parseYmd, ymd } from '@/lib/fmt';
-import { calcularConta, contaAtual, diasEntre, fatiaDaConta, type ContaSalva, type Dia } from '@/lib/stats';
+import { calcularConta, cicloAnterior, cicloDe, cicloPorRef, contaAtual, diasEntre, fatiaDaConta, type ContaSalva, type Dia } from '@/lib/stats';
 import { card, rotulo } from './ui';
 
 type Props = {
@@ -12,6 +12,7 @@ type Props = {
   setCfg: (f: (c: Config) => Config) => void;
   dias: Dia[];
   hoje: Date;
+  diaLeitura: number;
   contas: Record<string, ContaSalva>;
   setContas: (f: (c: Record<string, ContaSalva>) => Record<string, ContaSalva>) => void;
 };
@@ -20,21 +21,25 @@ const rot = { fontSize: 13, fontWeight: 700, color: 'var(--muted)' } as const;
 const nomeMes = (ym: string) => cap(MONTHS[Number(ym.slice(5, 7)) - 1]);
 const numTxt = (n: number) => String(n).replace('.', ',');
 
-export default function Contas({ cfg, setCfg, dias, hoje, contas, setContas }: Props) {
+export default function Contas({ cfg, setCfg, dias, hoje, diaLeitura, contas, setContas }: Props) {
   const [aviso, setAviso] = useState<{ texto: string; erro: boolean } | null>(null);
   const [apagando, setApagando] = useState<string | null>(null);
 
   const setConta = (k: 'valor' | 'kwh' | 'fixas' | 'mes' | 'inicio' | 'fim', v: string) => {
     setAviso(null);
-    setCfg((c) => ({ ...c, conta: { ...c.conta, [k]: v } }));
+    // ao trocar o mês da conta, as datas voltam a ser calculadas pelo dia da leitura
+    setCfg((c) => ({ ...c, conta: { ...c.conta, [k]: v, ...(k === 'mes' ? { inicio: '', fim: '' } : {}) } }));
   };
 
-  const mesPadrao = ymd(new Date(hoje.getFullYear(), hoje.getMonth() - 1, 1)).slice(0, 7);
+  // a última conta recebida é a do ciclo que acabou de fechar
+  const mesPadrao = cicloAnterior(cicloDe(hoje, diaLeitura), diaLeitura).ref;
   const mesConta = cfg.conta.mes || mesPadrao;
-  const temPeriodo = Boolean(cfg.conta.inicio && cfg.conta.fim);
-  const periodoInvalido = temPeriodo && cfg.conta.fim <= cfg.conta.inicio;
-  const numeros = { valor: parseNum(cfg.conta.valor), kwh: parseNum(cfg.conta.kwh), fixas: parseNum(cfg.conta.fixas), mes: mesConta, ...(temPeriodo ? { inicio: cfg.conta.inicio, fim: cfg.conta.fim } : {}) };
-  const rotuloPeriodo = temPeriodo && !periodoInvalido ? `${dl(parseYmd(cfg.conta.inicio))} a ${dl(parseYmd(cfg.conta.fim))}` : null;
+  const auto = cicloPorRef(mesConta, diaLeitura);
+  const inicio = cfg.conta.inicio || auto.inicio;
+  const fim = cfg.conta.fim || auto.fim;
+  const periodoInvalido = fim <= inicio;
+  const numeros = { valor: parseNum(cfg.conta.valor), kwh: parseNum(cfg.conta.kwh), fixas: parseNum(cfg.conta.fixas), mes: mesConta, inicio, fim };
+  const rotuloPeriodo = periodoInvalido ? null : `${dl(parseYmd(inicio))} a ${dl(parseYmd(fim))}`;
   const r = calcularConta(numeros, dias, hoje);
   const jaSalva = Boolean(contas[mesConta]);
 
@@ -43,7 +48,7 @@ export default function Contas({ cfg, setCfg, dias, hoje, contas, setContas }: P
       setAviso({ erro: true, texto: periodoInvalido ? 'A leitura atual precisa ser depois da leitura anterior.' : 'Preencha o valor total e os kWh da conta (o valor tem que ser maior que as taxas fixas).' });
       return;
     }
-    const salva: ContaSalva = { mes: mesConta, valor: numeros.valor, kwh: numeros.kwh, fixas: numeros.fixas, kwhAr: r.kwhAr, diasComDado: r.diasComDado, diasDoMes: r.diasDoMes, ...(temPeriodo ? { inicio: cfg.conta.inicio, fim: cfg.conta.fim } : {}), salvoEm: Date.now() };
+    const salva: ContaSalva = { mes: mesConta, valor: numeros.valor, kwh: numeros.kwh, fixas: numeros.fixas, kwhAr: r.kwhAr, diasComDado: r.diasComDado, diasDoMes: r.diasDoMes, inicio, fim, salvoEm: Date.now() };
     setContas((c) => ({ ...c, [mesConta]: salva }));
     // a tarifa daquele mês também fica guardada, para o custo dele no Histórico; o mês atual segue a tarifa dos Ajustes
     if (!preencher && mesConta !== ymd(hoje).slice(0, 7)) setCfg((c) => ({ ...c, tarifas: { ...c.tarifas, [mesConta]: r.tarifa } }));
@@ -98,18 +103,16 @@ export default function Contas({ cfg, setCfg, dias, hoje, contas, setContas }: P
         </label>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
           <label style={rot}>Leitura anterior
-            <input className="input" type="date" value={cfg.conta.inicio} onChange={(e) => setConta('inicio', e.target.value)} />
+            <input className="input" type="date" value={inicio} onChange={(e) => e.target.value && setConta('inicio', e.target.value)} />
           </label>
           <label style={rot}>Leitura atual
-            <input className="input" type="date" value={cfg.conta.fim} onChange={(e) => setConta('fim', e.target.value)} />
+            <input className="input" type="date" value={fim} onChange={(e) => e.target.value && setConta('fim', e.target.value)} />
           </label>
         </div>
         <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.4, marginTop: -6 }}>
           {periodoInvalido
             ? 'A leitura atual precisa ser depois da anterior.'
-            : temPeriodo
-              ? `Contando o ar em ${diasEntre(cfg.conta.inicio, cfg.conta.fim)} dias, de ${rotuloPeriodo}. É o que está em "Datas de leituras" na conta.`
-              : 'Opcional: as datas de leitura que estão na conta deixam o cálculo do ar exato. Sem elas, o app usa o mês inteiro.'}
+            : `Contando o ar em ${diasEntre(inicio, fim)} dias, de ${rotuloPeriodo}. As datas vêm do dia da leitura (dia ${diaLeitura}, em Ajustes); você pode mudar se a sua conta tiver outras.`}
         </div>
         <label style={rot}>Valor total da conta (R$)
           <input className="input" inputMode="decimal" placeholder="ex.: 480,00" value={cfg.conta.valor} onChange={(e) => setConta('valor', e.target.value)} />
@@ -126,9 +129,9 @@ export default function Contas({ cfg, setCfg, dias, hoje, contas, setContas }: P
             {r.cobertura >= 0.95 ? (
               <>O ar foi <b>{nf(r.share * 100, 0)}%</b> da conta de {MONTHS[Number(mesConta.slice(5, 7)) - 1]}, cerca de <b>{brl(r.custoAr)}</b> ({nf(r.kwhAr, 0)} kWh).</>
             ) : r.shareMesCheio != null && r.custoMesCheio != null ? (
-              <>Tenho {r.diasComDado} de {r.diasDoMes} dias {temPeriodo ? 'desse período' : 'desse mês'}. Estimando o período inteiro, o ar deve ter sido cerca de <b>{nf(r.shareMesCheio * 100, 0)}%</b> da conta, <b>{brl(r.custoMesCheio)}</b>.</>
+              <>Tenho {r.diasComDado} de {r.diasDoMes} dias desse período. Estimando o período inteiro, o ar deve ter sido cerca de <b>{nf(r.shareMesCheio * 100, 0)}%</b> da conta, <b>{brl(r.custoMesCheio)}</b>.</>
             ) : (
-              <>Tenho só {r.diasComDado} de {r.diasDoMes} dias {temPeriodo ? 'desse período' : 'desse mês'}, pouco para dizer quanto da conta foi do ar. Você ainda pode salvar a conta.</>
+              <>Tenho só {r.diasComDado} de {r.diasDoMes} dias desse período, pouco para dizer quanto da conta foi do ar. Você ainda pode salvar a conta.</>
             )}
           </div>
         )}
