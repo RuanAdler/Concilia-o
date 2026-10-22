@@ -1,3 +1,4 @@
+import { AR_INSTALADO_EM } from './contas-iniciais';
 import { parseYmd, ymd } from './fmt';
 
 export type Dia = { data: string; kwh: number };
@@ -212,8 +213,9 @@ export function fatiaDaConta(
   const diasPeriodo = c.inicio && c.fim ? diasEntre(c.inicio, c.fim) : c.diasDoMes;
   const cobertura = c.diasDoMes > 0 ? c.diasComDado / c.diasDoMes : 0;
   const kwhDiferenca = semArDia > 0 && diasPeriodo > 0 ? Math.max(0, c.kwh - semArDia * diasPeriodo) : null;
-  const base = { tarifa, cobertura, kwhDiferenca, antesDoAr: Boolean(c.antesDoAr) };
-  if (c.antesDoAr) return { ...base, estimada: false, porDiferenca: false, share: 0, custoAr: 0, kwhMes: 0 };
+  const antesDoAr = Boolean(c.antesDoAr) || Boolean(c.fim && c.fim <= AR_INSTALADO_EM);
+  const base = { tarifa, cobertura, kwhDiferenca, antesDoAr };
+  if (antesDoAr) return { ...base, estimada: false, porDiferenca: false, share: 0, custoAr: 0, kwhMes: 0 };
   const kwhMes = cobertura >= 0.95 ? c.kwhAr : cobertura >= 0.3 ? c.kwhAr / cobertura : null;
   if (kwhMes != null && c.kwh > 0) {
     return { ...base, estimada: cobertura < 0.95, porDiferenca: false, share: kwhMes / c.kwh, custoAr: kwhMes * tarifa, kwhMes };
@@ -228,4 +230,14 @@ export function fatiaDaConta(
 export function contaAtual(c: ContaSalva, dias: Dia[]): ContaSalva {
   const dm = c.inicio && c.fim ? diasDoPeriodo(dias, c.inicio, c.fim) : doMes(dias, Number(c.mes.slice(0, 4)), Number(c.mes.slice(5)) - 1);
   return dm.length >= c.diasComDado ? { ...c, kwhAr: soma(dm), diasComDado: dm.length } : c;
+}
+
+/**
+ * Previsão de consumo do ciclo inteiro pelo ritmo dos dias já fechados (hoje fica de fora, porque ainda está
+ * contando). Só existe com pelo menos `minDias` dias fechados e nunca fica abaixo do que já foi gasto.
+ */
+export function previsaoCiclo(noCiclo: Dia[], hojeStr: string, totalDias: number, minDias = 3): number | null {
+  const fechados = noCiclo.filter((d) => d.data < hojeStr);
+  if (fechados.length < minDias) return null;
+  return Math.max((soma(fechados) / fechados.length) * totalDias, soma(noCiclo));
 }
