@@ -13,7 +13,9 @@ type Props = {
   dias: Dia[];
   hoje: Date;
   diaLeitura: number;
-  contas: Record<string, ContaSalva>;
+  semArDia: number;
+  contas: Record<string, ContaSalva>; // contas que já vêm no app + as salvas
+  salvas: Record<string, ContaSalva>; // só as que o usuário salvou
   setContas: (f: (c: Record<string, ContaSalva>) => Record<string, ContaSalva>) => void;
 };
 
@@ -21,7 +23,7 @@ const rot = { fontSize: 13, fontWeight: 700, color: 'var(--muted)' } as const;
 const nomeMes = (ym: string) => cap(MONTHS[Number(ym.slice(5, 7)) - 1]);
 const numTxt = (n: number) => String(n).replace('.', ',');
 
-export default function Contas({ cfg, setCfg, dias, hoje, diaLeitura, contas, setContas }: Props) {
+export default function Contas({ cfg, setCfg, dias, hoje, diaLeitura, semArDia, contas, salvas, setContas }: Props) {
   const [aviso, setAviso] = useState<{ texto: string; erro: boolean } | null>(null);
   const [apagando, setApagando] = useState<string | null>(null);
 
@@ -78,7 +80,7 @@ export default function Contas({ cfg, setCfg, dias, hoje, diaLeitura, contas, se
     .sort((a, b) => a.mes.localeCompare(b.mes))
     .map((c) => {
       const a = contaAtual(c, dias);
-      return { c: a, f: fatiaDaConta(a) };
+      return { c: a, f: fatiaDaConta(a, semArDia) };
     });
   const lista = cronologica.map((x, i) => ({ ...x, ant: i > 0 ? cronologica[i - 1].f : null })).reverse();
   const comShare = cronologica.filter((x) => x.f.share != null).slice(-12);
@@ -173,14 +175,17 @@ export default function Contas({ cfg, setCfg, dias, hoje, diaLeitura, contas, se
           )}
 
           {lista.map(({ c, f, ant }) => {
-            const dp = f.share != null && ant?.share != null ? (f.share - ant.share) * 100 : null;
+            const dpBruto = f.share != null && ant?.share != null ? (f.share - ant.share) * 100 : null;
+            const dp = dpBruto != null && Math.abs(dpBruto) >= 0.05 ? dpBruto : null;
             return (
               <section key={c.mes} style={{ ...card(22, '14px 16px'), display: 'grid', gap: 8 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div style={{ fontSize: 16, fontWeight: 800 }}>{nomeMes(c.mes)} {c.mes.slice(0, 4)}</div>
                   <div style={{ display: 'flex', gap: 2 }}>
                     <button onClick={() => editar(c)} aria-label={`Editar ${nomeMes(c.mes)}`} style={{ width: 44, height: 44, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Pencil size={18} /></button>
-                    {apagando === c.mes ? (
+                    {!salvas[c.mes] ? (
+                      <span style={{ height: 44, display: 'flex', alignItems: 'center', padding: '0 8px', fontSize: 11.5, fontWeight: 800, color: 'var(--muted)' }}>fixa</span>
+                    ) : apagando === c.mes ? (
                       <button onClick={() => { setContas((cs) => { const n = { ...cs }; delete n[c.mes]; return n; }); setApagando(null); }} style={{ height: 44, padding: '0 10px', fontSize: 13, fontWeight: 800, color: 'var(--red)' }}>Confirmar</button>
                     ) : (
                       <button onClick={() => setApagando(c.mes)} aria-label={`Apagar ${nomeMes(c.mes)}`} style={{ width: 44, height: 44, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--red)' }}><Trash2 size={18} /></button>
@@ -188,16 +193,23 @@ export default function Contas({ cfg, setCfg, dias, hoje, diaLeitura, contas, se
                   </div>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
-                  {f.share != null && f.custoAr != null ? (
+                  {f.antesDoAr ? (
+                    <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--muted)' }}>Antes do ar: a casa gastou isso sem ar-condicionado.</span>
+                  ) : f.share != null && f.custoAr != null ? (
                     <>
                       <span style={{ fontSize: 30, fontWeight: 800, letterSpacing: '-0.03em' }}>{nf(f.share * 100, 0)}%</span>
                       <span style={{ fontSize: 17, fontWeight: 700, color: 'var(--accent)' }}>≈ {brl(f.custoAr)}</span>
-                      {f.estimada && <span style={{ fontSize: 11.5, fontWeight: 800, color: 'var(--amber)' }}>estimativa</span>}
+                      {f.estimada && <span style={{ fontSize: 11.5, fontWeight: 800, color: 'var(--amber)' }}>{f.porDiferenca ? 'estimado pela diferença' : 'estimativa'}</span>}
                     </>
                   ) : (
                     <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--muted)' }}>Sem dados do ar suficientes nesse mês.</span>
                   )}
                 </div>
+                {!f.antesDoAr && !f.porDiferenca && f.kwhDiferenca != null && f.kwhMes != null && (
+                  <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>
+                    Conferindo: pela diferença com a casa sem o ar (≈ {nf(semArDia, 1)} kWh por dia), o ar teria gastado ≈ {nf(f.kwhDiferenca, 0)} kWh. A LG informa ≈ {nf(f.kwhMes, 0)} kWh.
+                  </div>
+                )}
                 <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--muted)', lineHeight: 1.45 }}>
                   {c.inicio && c.fim ? `Leitura ${dl(parseYmd(c.inicio))} a ${dl(parseYmd(c.fim))} · ` : ''}Conta {brl(c.valor)} · {nf(c.kwh, 0)} kWh · tarifa {brl(f.tarifa)}/kWh
                   {dp != null && <> · <b style={{ color: dp > 0 ? 'var(--amber)' : 'var(--green)' }}>{dp > 0 ? '+' : '−'}{nf(Math.abs(dp), 1)} pontos</b> na fatia do ar</>}

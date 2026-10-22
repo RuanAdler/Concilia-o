@@ -196,21 +196,32 @@ export type ContaSalva = {
   inicio?: string; // datas de leitura da conta (início inclusive, fim exclusive); sem elas vale o mês
   fim?: string;
   salvoEm: number;
+  fixa?: boolean; // conta que já vem no app
+  antesDoAr?: boolean; // ciclo antes de o ar ser instalado
 };
 
-/** Tarifa e fatia do ar de uma conta; estima o mês inteiro se o app só tinha parte dos dias. */
-export function fatiaDaConta(c: Pick<ContaSalva, 'valor' | 'kwh' | 'fixas' | 'kwhAr' | 'diasComDado' | 'diasDoMes'>) {
+/**
+ * Tarifa e fatia do ar de uma conta. Com os dias do ar que o app tem, usa-os (estimando o período inteiro
+ * se faltarem dias). Sem dados suficientes, estima pela diferença entre a conta e o consumo da casa sem o ar.
+ */
+export function fatiaDaConta(
+  c: Pick<ContaSalva, 'valor' | 'kwh' | 'fixas' | 'kwhAr' | 'diasComDado' | 'diasDoMes' | 'inicio' | 'fim' | 'antesDoAr'>,
+  semArDia = 0,
+) {
   const tarifa = c.kwh > 0 ? Math.max(0, c.valor - c.fixas) / c.kwh : 0;
+  const diasPeriodo = c.inicio && c.fim ? diasEntre(c.inicio, c.fim) : c.diasDoMes;
   const cobertura = c.diasDoMes > 0 ? c.diasComDado / c.diasDoMes : 0;
+  const kwhDiferenca = semArDia > 0 && diasPeriodo > 0 ? Math.max(0, c.kwh - semArDia * diasPeriodo) : null;
+  const base = { tarifa, cobertura, kwhDiferenca, antesDoAr: Boolean(c.antesDoAr) };
+  if (c.antesDoAr) return { ...base, estimada: false, porDiferenca: false, share: 0, custoAr: 0, kwhMes: 0 };
   const kwhMes = cobertura >= 0.95 ? c.kwhAr : cobertura >= 0.3 ? c.kwhAr / cobertura : null;
-  return {
-    tarifa,
-    cobertura,
-    estimada: cobertura < 0.95,
-    share: kwhMes != null && c.kwh > 0 ? kwhMes / c.kwh : null,
-    custoAr: kwhMes != null ? kwhMes * tarifa : null,
-    kwhMes,
-  };
+  if (kwhMes != null && c.kwh > 0) {
+    return { ...base, estimada: cobertura < 0.95, porDiferenca: false, share: kwhMes / c.kwh, custoAr: kwhMes * tarifa, kwhMes };
+  }
+  if (kwhDiferenca != null && c.kwh > 0) {
+    return { ...base, estimada: true, porDiferenca: true, share: kwhDiferenca / c.kwh, custoAr: kwhDiferenca * tarifa, kwhMes: kwhDiferenca };
+  }
+  return { ...base, estimada: cobertura < 0.95, porDiferenca: false, share: null as number | null, custoAr: null as number | null, kwhMes: null as number | null };
 }
 
 /** Usa os dias que o app tem hoje daquele mês, a menos que o registro salvo tenha mais dias. */

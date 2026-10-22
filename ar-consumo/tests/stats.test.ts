@@ -4,6 +4,7 @@ import {
   fatiaDaConta, mediaAnterior, mediaPorDiaSemana, periodosCiclo, projecaoCiclo, tarifaDoMes,
 } from '../src/lib/stats';
 import { parseNum } from '../src/lib/fmt';
+import { CONTAS_INICIAIS, TARIFAS_INICIAIS } from '../src/lib/contas-iniciais';
 
 const dia = (data: string, kwh: number) => ({ data, kwh });
 const hoje = new Date(2026, 9, 22);
@@ -193,5 +194,44 @@ describe('conta com datas de leitura', () => {
   it('a conta salva usa o período ao atualizar', () => {
     const salva = { mes: '2026-10', valor: 367.89, kwh: 286, fixas: 26.3, kwhAr: 100, diasComDado: 20, diasDoMes: 30, inicio: '2026-09-16', fim: '2026-10-16', salvoEm: 0 };
     expect(contaAtual(salva, todos)).toMatchObject({ kwhAr: 150, diasComDado: 30 });
+  });
+});
+
+describe('contas que já vêm no app', () => {
+  const cs = Object.values(CONTAS_INICIAIS);
+
+  it('têm as cinco contas, com tarifa efetiva por mês', () => {
+    expect(cs.map((c) => c.mes)).toEqual(['2026-06', '2026-07', '2026-08', '2026-09', '2026-10']);
+    expect(TARIFAS_INICIAIS['2026-10']).toBeCloseTo(1.1944, 3);
+    expect(TARIFAS_INICIAIS['2026-08']).toBeCloseTo(1.1935, 3);
+    expect(diasEntre('2026-07-15', '2026-08-17')).toBe(33);
+  });
+
+  it('a base de cálculo do ICMS confere com total menos taxas fixas', () => {
+    const base = Object.fromEntries(cs.map((c) => [c.mes, c.valor - c.fixas]));
+    expect(base['2026-08']).toBeCloseTo(190.96, 2);
+    expect(base['2026-09']).toBeCloseTo(270.75, 2);
+    expect(base['2026-10']).toBeCloseTo(341.59, 2);
+  });
+
+  it('estima o ar pela diferença com a casa sem o ar quando a LG não tem dados', () => {
+    const set = fatiaDaConta(CONTAS_INICIAIS['2026-09'], 4.3);
+    expect(set.porDiferenca).toBe(true);
+    expect(set.kwhMes).toBeCloseTo(223 - 4.3 * 30, 1);
+    expect(set.share).toBeCloseTo((223 - 129) / 223, 2);
+    const ago = fatiaDaConta(CONTAS_INICIAIS['2026-08'], 4.3);
+    expect(ago.kwhMes).toBeCloseTo(160 - 4.3 * 33, 1);
+  });
+
+  it('antes do ar a fatia é zero, e sem a base não há estimativa', () => {
+    expect(fatiaDaConta(CONTAS_INICIAIS['2026-06'], 4.3)).toMatchObject({ antesDoAr: true, share: 0, custoAr: 0 });
+    expect(fatiaDaConta(CONTAS_INICIAIS['2026-09'], 0).share).toBeNull();
+  });
+
+  it('com dados da LG usa a LG e mostra a diferença só para conferir', () => {
+    const f = fatiaDaConta({ ...CONTAS_INICIAIS['2026-10'], kwhAr: 144, diasComDado: 25 }, 4.3);
+    expect(f.porDiferenca).toBe(false);
+    expect(f.kwhMes).toBeCloseTo(172.8, 1);
+    expect(f.kwhDiferenca).toBeCloseTo(286 - 129, 1);
   });
 });

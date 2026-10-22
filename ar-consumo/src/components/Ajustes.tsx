@@ -57,6 +57,17 @@ export default function Ajustes({ cfg, setCfg, tarifa, desde, nomeLg, nDias, pin
         </Linha>
       </Secao>
 
+      <Secao titulo="Casa sem o ar">
+        <Linha ultimo>
+          <label style={{ fontSize: 13, fontWeight: 700, color: 'var(--muted)' }}>Consumo da casa sem o ar-condicionado (kWh por dia)
+            <input className="input" inputMode="decimal" value={cfg.semAr} onChange={(e) => set('semAr', e.target.value)} />
+          </label>
+          <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--muted)', lineHeight: 1.4 }}>
+            Média de antes de o ar ser instalado (contas de junho e julho: cerca de 4,3). Serve para estimar a fatia do ar nos meses em que a LG não tem dados.
+          </div>
+        </Linha>
+      </Secao>
+
       <Secao titulo="Tarifa">
         <Linha ultimo>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -66,7 +77,6 @@ export default function Ajustes({ cfg, setCfg, tarifa, desde, nomeLg, nDias, pin
           </div>
           <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--muted)', lineHeight: 1.4 }}>
             Preço de 1 kWh. É preenchido pela conta de luz; você também pode digitar à mão.
-            {!cfg.tarifaDefinida && ' O valor atual é provisório.'}
           </div>
         </Linha>
       </Secao>

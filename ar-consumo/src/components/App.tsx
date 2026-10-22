@@ -8,6 +8,7 @@ import { MODES } from '@/lib/device';
 import { mesclarDias, type DiaEnergia } from '@/lib/energia';
 import { dl, hhmm, nf, parseNum, parseYmd, ymd } from '@/lib/fmt';
 import { cicloDe, clampDia, contaAtual, fatiaDaConta, mapaParaDias, tarifaDoMes, type ContaSalva } from '@/lib/stats';
+import { CONTAS_INICIAIS, TARIFAS_INICIAIS } from '@/lib/contas-iniciais';
 import Ajustes from './Ajustes';
 import Contas from './Contas';
 import Historico from './Historico';
@@ -25,7 +26,11 @@ const json = async (r: Response) => (await r.json().catch(() => ({}))) as Record
 export default function App() {
   const [cfgSalvo, setCfg] = usarLocal<Config>('ar.cfg2', CONFIG_PADRAO);
   // configurações antigas não têm os campos novos: completa com o padrão
-  const cfg = useMemo<Config>(() => ({ ...CONFIG_PADRAO, ...cfgSalvo, conta: { ...CONFIG_PADRAO.conta, ...cfgSalvo.conta } }), [cfgSalvo]);
+  const cfg = useMemo<Config>(() => {
+    const c = { ...CONFIG_PADRAO, ...cfgSalvo, conta: { ...CONFIG_PADRAO.conta, ...cfgSalvo.conta } };
+    // a tarifa de R$ 0,95 era só provisória: quem nunca a definiu passa a usar a das contas
+    return cfgSalvo.tarifaDefinida && cfgSalvo.tariff !== '0,95' ? c : { ...c, tariff: CONFIG_PADRAO.tariff, tarifaDefinida: true };
+  }, [cfgSalvo]);
   const [mapa, setMapa] = usarLocal<Record<string, number>>('ar.dias', {});
   const [contas, setContas] = usarLocal<Record<string, ContaSalva>>('ar.contas', {});
   const [salvo, setSalvo] = usarLocal<Salvo>('ar.device', null);
@@ -68,7 +73,10 @@ export default function App() {
   const tarifa = cfg.tariffMode === 'direto' ? parseNum(cfg.tariff) : parseNum(cfg.billKwh) ? parseNum(cfg.billValue) / parseNum(cfg.billKwh) : 0;
   const primeiro = dias[0]?.data ?? ymd(hoje);
   const diaLeitura = clampDia(parseInt(cfg.diaLeitura, 10));
-  const dados: Dados = { cfg, dias, hoje, tarifa, diaLeitura, tarifas: cfg.tarifas, desde: cfg.since || cicloDe(hoje, diaLeitura).inicio, base: parseNum(cfg.base), primeiro, contas };
+  const semArDia = parseNum(cfg.semAr);
+  const contasTodas = useMemo(() => ({ ...CONTAS_INICIAIS, ...contas }), [contas]);
+  const tarifasTodas = useMemo(() => ({ ...TARIFAS_INICIAIS, ...cfg.tarifas }), [cfg.tarifas]);
+  const dados: Dados = { cfg, dias, hoje, tarifa, diaLeitura, semArDia, tarifas: tarifasTodas, desde: cfg.since || cicloDe(hoje, diaLeitura).inicio, base: parseNum(cfg.base), primeiro, contas: contasTodas };
 
   // guarda a tarifa de cada mês: mudar o valor não reescreve o custo dos meses passados
   useEffect(() => {
@@ -229,16 +237,16 @@ export default function App() {
 
   // ---- dados / diagnóstico ----
   const exportar = () => {
-    const blocoContas = Object.values(contas)
+    const blocoContas = Object.values(contasTodas)
       .sort((a, b) => a.mes.localeCompare(b.mes))
       .map((c) => {
         const a = contaAtual(c, dias);
-        const f = fatiaDaConta(a);
-        return `${a.mes};${a.inicio ?? ''};${a.fim ?? ''};${nf(a.valor, 2)};${nf(a.kwh, 1)};${nf(a.fixas, 2)};${nf(a.kwhAr, 2)};${f.share != null ? nf(f.share * 100, 1) : ''};${f.estimada ? 'estimada' : 'completa'}`;
+        const f = fatiaDaConta(a, semArDia);
+        return `${a.mes};${a.inicio ?? ''};${a.fim ?? ''};${nf(a.valor, 2)};${nf(a.kwh, 1)};${nf(a.fixas, 2)};${nf(a.kwhAr, 2)};${f.share != null ? nf(f.share * 100, 1) : ''};${f.antesDoAr ? 'antes do ar' : f.porDiferenca ? 'por diferença' : f.estimada ? 'estimada' : 'completa'}`;
       });
     const linhas = [
       'data;kwh;reais',
-      ...dias.map((x) => `${x.data};${nf(x.kwh, 3)};${nf(x.kwh * tarifaDoMes(cfg.tarifas, tarifa, x.data.slice(0, 7)), 2)}`),
+      ...dias.map((x) => `${x.data};${nf(x.kwh, 3)};${nf(x.kwh * tarifaDoMes(tarifasTodas, tarifa, x.data.slice(0, 7)), 2)}`),
       ...(blocoContas.length ? ['', 'mes;inicio_leitura;fim_leitura;valor_conta;kwh_conta;taxas_fixas;kwh_ar;fatia_ar_pct;cobertura', ...blocoContas] : []),
     ].join('\n');
     try {
@@ -318,7 +326,7 @@ export default function App() {
           />
         )}
         {aba === 'hist' && <Historico d={dados} />}
-        {aba === 'contas' && <Contas cfg={cfg} setCfg={setCfg} dias={dias} hoje={hoje} diaLeitura={diaLeitura} contas={contas} setContas={setContas} />}
+        {aba === 'contas' && <Contas cfg={cfg} setCfg={setCfg} dias={dias} hoje={hoje} diaLeitura={diaLeitura} semArDia={semArDia} contas={contasTodas} salvas={contas} setContas={setContas} />}
         {aba === 'set' && (
           <Ajustes
             cfg={cfg}
