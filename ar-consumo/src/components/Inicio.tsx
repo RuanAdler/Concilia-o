@@ -26,6 +26,8 @@ type Props = {
   unlocked: boolean;
   dicaOculta: boolean;
   avisoOculto: boolean;
+  erroUso: string | null;
+  onRetryUso: () => void;
   selDia: number | null;
   onSelDia: (i: number) => void;
   onLock: () => void;
@@ -151,6 +153,17 @@ export default function Inicio(p: Props) {
             </div>
           </div>
           <button onClick={p.onRetryConn} style={{ minHeight: 44, padding: '0 6px', fontSize: 13, fontWeight: 800, color: 'var(--red)' }}>Tentar</button>
+        </div>
+      )}
+
+      {p.erroUso && !err && (
+        <div style={{ padding: '14px 16px', borderRadius: 18, background: 'var(--amber-soft)', display: 'grid', gap: 6 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <TriangleAlert size={20} color="var(--amber)" style={{ flex: 'none' }} />
+            <div style={{ flex: 1, fontSize: 14, fontWeight: 700 }}>Não consegui ler o consumo da LG</div>
+            <button onClick={p.onRetryUso} style={{ minHeight: 44, padding: '0 6px', fontSize: 13, fontWeight: 800, color: 'var(--amber)' }}>Tentar</button>
+          </div>
+          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', wordBreak: 'break-word' }}>{p.erroUso}</div>
         </div>
       )}
 
