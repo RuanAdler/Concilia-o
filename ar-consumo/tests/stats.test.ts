@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { agruparMeses, calcularConta, custoDe, delta, faixasSemana, mediaAnterior, mediaPorDiaSemana, periodos, projecaoMes, tarifaDoMes } from '../src/lib/stats';
+import { agruparMeses, calcularConta, contaAtual, fatiaDaConta, custoDe, delta, faixasSemana, mediaAnterior, mediaPorDiaSemana, periodos, projecaoMes, tarifaDoMes } from '../src/lib/stats';
 import { parseNum } from '../src/lib/fmt';
 
 const dia = (data: string, kwh: number) => ({ data, kwh });
@@ -115,5 +115,32 @@ describe('calcularConta', () => {
 
   it('o acumulado começa no mês da conta se o mês seguinte ainda não chegou', () => {
     expect(calcularConta({ valor: 400, kwh: 400, fixas: 0, mes: '2026-10' }, [], hoje)?.desde).toBe('2026-10-01');
+  });
+});
+
+describe('contas salvas', () => {
+  const base = { valor: 450, kwh: 400, fixas: 50, kwhAr: 120, diasComDado: 30, diasDoMes: 30 };
+
+  it('calcula a fatia de uma conta completa', () => {
+    const f = fatiaDaConta(base);
+    expect(f.tarifa).toBe(1);
+    expect(f.share).toBeCloseTo(0.3);
+    expect(f.custoAr).toBe(120);
+    expect(f.estimada).toBe(false);
+  });
+
+  it('estima quando faltam dias e recusa quando faltam muitos', () => {
+    const f = fatiaDaConta({ ...base, kwhAr: 60, diasComDado: 15 });
+    expect(f.estimada).toBe(true);
+    expect(f.share).toBeCloseTo(0.3);
+    expect(fatiaDaConta({ ...base, kwhAr: 10, diasComDado: 3 }).share).toBeNull();
+  });
+
+  it('atualiza com os dias que o app tem hoje, sem perder o que foi salvo', () => {
+    const salva = { mes: '2026-09', ...base, kwhAr: 60, diasComDado: 15, salvoEm: 0 };
+    const mais = Array.from({ length: 30 }, (_, i) => dia(`2026-09-${String(i + 1).padStart(2, '0')}`, 4));
+    expect(contaAtual(salva, mais)).toMatchObject({ kwhAr: 120, diasComDado: 30 });
+    // histórico apagado: continua valendo o registro salvo
+    expect(contaAtual(salva, [])).toMatchObject({ kwhAr: 60, diasComDado: 15 });
   });
 });

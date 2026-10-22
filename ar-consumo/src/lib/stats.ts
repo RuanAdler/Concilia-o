@@ -122,3 +122,36 @@ export function calcularConta(c: ContaNumeros, dias: Dia[], hoje: Date) {
     desde: ymd(seguinte > hoje ? new Date(ano, mes0, 1) : seguinte),
   };
 }
+
+/** Conta de luz salva para um mês, com o consumo do ar daquele mês no momento em que foi salva. */
+export type ContaSalva = {
+  mes: string; // AAAA-MM
+  valor: number;
+  kwh: number;
+  fixas: number;
+  kwhAr: number;
+  diasComDado: number;
+  diasDoMes: number;
+  salvoEm: number;
+};
+
+/** Tarifa e fatia do ar de uma conta; estima o mês inteiro se o app só tinha parte dos dias. */
+export function fatiaDaConta(c: Pick<ContaSalva, 'valor' | 'kwh' | 'fixas' | 'kwhAr' | 'diasComDado' | 'diasDoMes'>) {
+  const tarifa = c.kwh > 0 ? Math.max(0, c.valor - c.fixas) / c.kwh : 0;
+  const cobertura = c.diasDoMes > 0 ? c.diasComDado / c.diasDoMes : 0;
+  const kwhMes = cobertura >= 0.95 ? c.kwhAr : cobertura >= 0.3 ? c.kwhAr / cobertura : null;
+  return {
+    tarifa,
+    cobertura,
+    estimada: cobertura < 0.95,
+    share: kwhMes != null && c.kwh > 0 ? kwhMes / c.kwh : null,
+    custoAr: kwhMes != null ? kwhMes * tarifa : null,
+    kwhMes,
+  };
+}
+
+/** Usa os dias que o app tem hoje daquele mês, a menos que o registro salvo tenha mais dias. */
+export function contaAtual(c: ContaSalva, dias: Dia[]): ContaSalva {
+  const dm = doMes(dias, Number(c.mes.slice(0, 4)), Number(c.mes.slice(5)) - 1);
+  return dm.length >= c.diasComDado ? { ...c, kwhAr: soma(dm), diasComDado: dm.length } : c;
+}
