@@ -214,7 +214,8 @@ export function fatiaDaConta(
   const cobertura = c.diasDoMes > 0 ? c.diasComDado / c.diasDoMes : 0;
   const kwhDiferenca = semArDia > 0 && diasPeriodo > 0 ? Math.max(0, c.kwh - semArDia * diasPeriodo) : null;
   const antesDoAr = Boolean(c.antesDoAr) || Boolean(c.fim && c.fim <= AR_INSTALADO_EM);
-  const base = { tarifa, cobertura, kwhDiferenca, antesDoAr };
+  const incompleta = !(c.kwh > 0);
+  const base = { tarifa, cobertura, kwhDiferenca, antesDoAr, incompleta };
   if (antesDoAr) return { ...base, estimada: false, porDiferenca: false, share: 0, custoAr: 0, kwhMes: 0 };
   const kwhMes = cobertura >= 0.95 ? c.kwhAr : cobertura >= 0.3 ? c.kwhAr / cobertura : null;
   if (kwhMes != null && c.kwh > 0) {

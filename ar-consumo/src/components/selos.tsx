@@ -5,7 +5,7 @@ import { useState, type ReactNode } from 'react';
 
 const base = { display: 'inline-flex', alignItems: 'center', gap: 5, height: 22, padding: '0 9px', borderRadius: 11, fontSize: 11, fontWeight: 800, whiteSpace: 'nowrap', flex: 'none' } as const;
 
-export type TipoSelo = 'real' | 'estimativa' | 'previsao' | 'diferenca';
+export type TipoSelo = 'real' | 'estimativa' | 'previsao' | 'diferenca' | 'neutro' | 'erro';
 
 /** Selo que diz de onde vem um número: sempre texto e forma, nunca só cor. */
 export function Selo({ tipo, texto }: { tipo: TipoSelo; texto?: string }) {
@@ -24,6 +24,8 @@ export function Selo({ tipo, texto }: { tipo: TipoSelo; texto?: string }) {
         <TrendingUp size={12} /> {texto ?? 'Previsão'}
       </span>
     );
+  if (tipo === 'neutro') return <span style={{ ...base, background: 'var(--surface2)', color: 'var(--muted)' }}>{texto}</span>;
+  if (tipo === 'erro') return <span style={{ ...base, background: 'var(--red-soft)', color: 'var(--red)' }}>{texto}</span>;
   return <span style={{ ...base, background: 'var(--amber-soft)', color: 'var(--amber)' }}>{texto ?? '≈ Estimada pela diferença'}</span>;
 }
 
