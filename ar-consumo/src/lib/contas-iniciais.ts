@@ -23,3 +23,6 @@ export const TARIFAS_INICIAIS: Record<string, number> = Object.fromEntries(
 
 /** Consumo médio da casa antes do ar (contas de junho e julho), em kWh por dia. */
 export const CASA_SEM_AR_PADRAO = '4,3';
+
+/** Dia em que o ar-condicionado foi instalado; ciclos que terminam até essa data são "antes do ar". */
+export const AR_INSTALADO_EM = '2026-08-14';

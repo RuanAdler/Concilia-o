@@ -20,6 +20,7 @@ export type Config = {
   nome: string;
   diaLeitura: string;
   semAr: string;
+  lockMin: number;
   conta: Conta;
   tarifas: Tarifas;
   tarifaDefinida: boolean;
@@ -41,6 +42,7 @@ export const CONFIG_PADRAO: Config = {
   nome: '',
   diaLeitura: '16',
   semAr: CASA_SEM_AR_PADRAO,
+  lockMin: 5,
   conta: { valor: '', kwh: '', fixas: '0', mes: '', inicio: '', fim: '' },
   tarifas: {},
   tarifaDefinida: true,

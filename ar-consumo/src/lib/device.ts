@@ -3,9 +3,9 @@ export type Mode = 'frio' | 'ventilar' | 'desumidificar' | 'aquecer' | 'auto';
 export const MODES: Record<Mode, string> = {
   frio: 'Frio',
   ventilar: 'Ventilar',
-  desumidificar: 'Desumidificar',
+  desumidificar: 'Tirar umidade',
   aquecer: 'Aquecer',
-  auto: 'Auto',
+  auto: 'Automático',
 };
 
 export const LG_MODE: Record<Mode, string> = {

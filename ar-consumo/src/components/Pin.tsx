@@ -51,9 +51,9 @@ export default function Pin({ acao, onFechar, onConferir }: Props) {
         <button onClick={onFechar} aria-label="Fechar" style={{ width: 44, height: 44, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><X size={24} /></button>
       </div>
       <div style={{ width: 64, height: 64, borderRadius: 22, background: 'var(--accent-soft)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: 8 }}><Lock size={28} color="var(--accent)" /></div>
-      <h2 style={{ fontSize: 22, fontWeight: 800, margin: '16px 0 4px' }}>Digite seu PIN</h2>
+      <h2 style={{ fontSize: 22, fontWeight: 800, margin: '16px 0 4px' }}>Controlar o Gelinho</h2>
       <p style={{ margin: 0, fontSize: 14, fontWeight: 600, color: 'var(--muted)', textAlign: 'center' }}>
-        {acao ? `Para ${acao}. ` : 'Necessário para controlar o ar. '}Ver o consumo continua livre.
+        Digite o PIN {acao ? `para ${acao}` : 'para controlar o ar'}. Para só olhar, não precisa.
       </p>
       <div style={{ display: 'flex', gap: 14, margin: '28px 0 10px', transform: `translateX(${tremer}px)` }} aria-label={`${entrada.length} de 6 dígitos`}>
         {Array.from({ length: 6 }, (_, i) => {

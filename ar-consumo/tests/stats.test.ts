@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   agruparCiclos, calcularConta, cicloAnterior, cicloDe, cicloPorRef, contaAtual, custoDe, delta, diasEntre, faixasSemana,
-  fatiaDaConta, mediaAnterior, mediaPorDiaSemana, periodosCiclo, projecaoCiclo, tarifaDoMes,
+  fatiaDaConta, mediaAnterior, mediaPorDiaSemana, periodosCiclo, previsaoCiclo, projecaoCiclo, tarifaDoMes,
 } from '../src/lib/stats';
 import { parseNum } from '../src/lib/fmt';
 import { CONTAS_INICIAIS, TARIFAS_INICIAIS } from '../src/lib/contas-iniciais';
@@ -233,5 +233,28 @@ describe('contas que já vêm no app', () => {
     expect(f.porDiferenca).toBe(false);
     expect(f.kwhMes).toBeCloseTo(172.8, 1);
     expect(f.kwhDiferenca).toBeCloseTo(286 - 129, 1);
+  });
+});
+
+describe('previsão do ciclo', () => {
+  const dias = (n: number) => Array.from({ length: n }, (_, i) => dia(`2026-10-${String(16 + i).padStart(2, '0')}`, 5));
+
+  it('usa o ritmo dos dias fechados, sem contar hoje', () => {
+    // 16 a 21 fechados (6 dias de 5 kWh) e hoje (22) com 2 kWh parciais
+    const noCiclo = [...dias(6), dia('2026-10-22', 2)];
+    expect(previsaoCiclo(noCiclo, '2026-10-22', 31)).toBeCloseTo(155);
+  });
+
+  it('só aparece com 3 dias fechados e nunca fica abaixo do já gasto', () => {
+    expect(previsaoCiclo(dias(2), '2026-10-22', 31)).toBeNull();
+    expect(previsaoCiclo(dias(3), '2026-10-22', 3)).toBe(15);
+  });
+});
+
+describe('antes do ar', () => {
+  it('ciclos que terminam até 14/08 não têm ar, mesmo sem a marca', () => {
+    const c = { valor: 200, kwh: 150, fixas: 20, kwhAr: 0, diasComDado: 0, diasDoMes: 30, inicio: '2026-06-15', fim: '2026-07-15' };
+    expect(fatiaDaConta(c, 4.3)).toMatchObject({ antesDoAr: true, share: 0 });
+    expect(fatiaDaConta({ ...c, fim: '2026-08-17' }, 4.3).antesDoAr).toBe(false);
   });
 });

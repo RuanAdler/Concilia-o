@@ -1,6 +1,6 @@
 'use client';
 
-import { ChartColumn, House, Receipt, SlidersHorizontal } from 'lucide-react';
+import { ChartColumn, House, ReceiptText, SlidersHorizontal } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CONFIG_PADRAO, usarLocal, type Config } from '@/lib/cliente';
 import type { Comando, Device, Mode } from '@/lib/device';
@@ -12,14 +12,14 @@ import { CONTAS_INICIAIS, TARIFAS_INICIAIS } from '@/lib/contas-iniciais';
 import Ajustes from './Ajustes';
 import Contas from './Contas';
 import Historico from './Historico';
-import Inicio, { type ConexaoEstado } from './Inicio';
+import Inicio, { type ConexaoEstado, type Modo } from './Inicio';
 import Pin from './Pin';
 import { SheetApagar, SheetDiag, type DiagLinha } from './Sheets';
 import type { Cmd, Dados } from './tipos';
 
 type Aba = 'home' | 'hist' | 'contas' | 'set';
 type Salvo = { device: Device; lidoEm: number } | null;
-type Pendente = { label: string; comando: Comando } | null;
+type Pendente = { label: string; comando: Comando | null } | null;
 
 const json = async (r: Response) => (await r.json().catch(() => ({}))) as Record<string, any>;
 
@@ -34,8 +34,6 @@ export default function App() {
   const [mapa, setMapa] = usarLocal<Record<string, number>>('ar.dias', {});
   const [contas, setContas] = usarLocal<Record<string, ContaSalva>>('ar.contas', {});
   const [salvo, setSalvo] = usarLocal<Salvo>('ar.device', null);
-  const [ui, setUi] = usarLocal<{ dica: boolean; aviso: boolean }>('ar.ui', { dica: false, aviso: false });
-  const [ligadoDesde, setLigadoDesde] = usarLocal<number | null>('ar.ligadoDesde', null);
 
   const [aba, setAba] = useState<Aba>('home');
   const [conn, setConn] = useState<ConexaoEstado>('loading');
@@ -47,9 +45,9 @@ export default function App() {
   const [pendente, setPendente] = useState<Pendente>(null);
   const [cmd, setCmd] = useState<Cmd>(null);
   const [draft, setDraft] = useState<number | null>(null);
-  const [desligaEmH, setDesligaEmH] = useState<number | null>(null);
+  const [desligaAs, setDesligaAs] = useState<number | null>(null);
+  const [modo, setModo] = useState<Modo>('olhar');
   const [erroUso, setErroUso] = useState<string | null>(null);
-  const [selDia, setSelDia] = useState<number | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [folha, setFolha] = useState<null | 'diag' | 'apagar'>(null);
   const [diag, setDiag] = useState<{ testando: boolean; ok: boolean | null; texto: string; ms: number | null; modo: string }>({ testando: false, ok: null, texto: '', ms: null, modo: '' });
@@ -60,6 +58,7 @@ export default function App() {
   const draftT = useRef<ReturnType<typeof setTimeout>>(undefined);
   const cmdT = useRef<ReturnType<typeof setTimeout>>(undefined);
   const draftRef = useRef<number | null>(null);
+  const ultimaAcao = useRef(Date.now());
 
   const mostrar = useCallback((t: string) => {
     clearTimeout(toastT.current);
@@ -107,11 +106,10 @@ export default function App() {
       setLidoEm(j.lidoEm);
       setConn('ok');
       setSalvo({ device: j.device, lidoEm: j.lidoEm });
-      setLigadoDesde((v) => (j.device.on ? v ?? Date.now() : null));
     } catch {
       setConn('error');
     }
-  }, [setSalvo, setLigadoDesde]);
+  }, [setSalvo]);
 
   const lerUso = useCallback(async () => {
     try {
@@ -149,6 +147,7 @@ export default function App() {
 
   const exec = useCallback(async (label: string, comando: Comando) => {
     clearTimeout(cmdT.current);
+    ultimaAcao.current = Date.now();
     setCmd({ status: 'pending', label });
     try {
       const r = await fetch('/api/lg/command', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(comando) });
@@ -162,16 +161,15 @@ export default function App() {
       if (r.status === 503 || r.status === 400) { setCmd(null); setDraft(null); mostrar(String(j.erro ?? 'Comando recusado')); return; }
       if (!r.ok) throw new Error(String(j.erro));
       setDevice(j.device); setConn('ok'); setDraft(null);
-      if (comando.action === 'timer') setDesligaEmH(comando.value);
-      if (comando.action === 'power' && !comando.value) setDesligaEmH(null);
-      setLigadoDesde(j.device.on ? Date.now() : null);
+      if (comando.action === 'timer') setDesligaAs(comando.value ? Date.now() + comando.value * 3600_000 : null);
+      if (comando.action === 'power' && !comando.value) setDesligaAs(null);
       setCmd({ status: 'ok', label });
       cmdT.current = setTimeout(() => setCmd(null), 2200);
     } catch {
       setDraft(null);
       setCmd({ status: 'error', label, retry: () => exec(label, comando) });
     }
-  }, [mostrar, setLigadoDesde]);
+  }, [mostrar]);
 
   const executar = useCallback((label: string, comando: Comando) => {
     if (conn === 'error') return mostrar('Sem conexão com a LG. Os controles voltam quando reconectar.');
@@ -186,15 +184,16 @@ export default function App() {
 
   const aoTemperatura = (delta: number) => {
     if (conn === 'error') return mostrar('Sem conexão com a LG. Os controles voltam quando reconectar.');
-    if (!ligado) return mostrar('Ligue o ar para ajustar a temperatura.');
-    if (!pin.liberado) return pin.configurado ? abrirPin(null) : mostrar('Controles desativados: defina APP_PIN na hospedagem.');
+    if (!ligado) return mostrar('Ligue o ar para mudar a temperatura.');
+    if (!pin.liberado) return pin.configurado ? abrirPin({ label: 'mudar a temperatura', comando: null }) : mostrar('Controles desativados: defina APP_PIN na hospedagem.');
+    ultimaAcao.current = Date.now();
     const atual = draftRef.current ?? aparelho?.targetC ?? 24;
     const t = Math.max(16, Math.min(30, atual + delta));
-    if (t === atual) return mostrar(t === 16 ? 'Mínimo: 16 °C' : 'Máximo: 30 °C');
+    if (t === atual) return mostrar(t === 16 ? 'O mínimo é 16 °C.' : 'O máximo é 30 °C.');
     draftRef.current = t;
     setDraft(t);
     clearTimeout(draftT.current);
-    draftT.current = setTimeout(() => { draftRef.current = null; exec(`alvo ${t} °C`, { action: 'target', value: t }); }, 900);
+    draftT.current = setTimeout(() => { draftRef.current = null; exec(`temperatura ${t} °C`, { action: 'target', value: t }); }, 900);
   };
 
   const aoModo = (m: Mode) => {
@@ -205,7 +204,7 @@ export default function App() {
 
   const aoTimer = (h: 1 | 2 | 4) => {
     if (!ligado) return mostrar('O timer só vale com o ar ligado.');
-    const cancelar = aparelho?.timerAtivo && desligaEmH === h;
+    const cancelar = Boolean(aparelho?.timerAtivo && desligaAs && Math.abs(desligaAs - Date.now() - h * 3600_000) < 1800_000);
     executar(cancelar ? 'cancelar timer' : `desligar em ${h}h`, { action: 'timer', value: cancelar ? null : h });
   };
 
@@ -213,7 +212,7 @@ export default function App() {
     try {
       const r = await fetch('/api/pin', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ pin: digitos }) });
       const j = await json(r);
-      if (!r.ok) return { ok: false, erro: r.status === 429 ? String(j.erro) : 'PIN incorreto. Tente de novo.' };
+      if (!r.ok) return { ok: false, erro: r.status === 429 ? String(j.erro) : 'PIN errado. Tente de novo.' };
     } catch {
       return { ok: false, erro: 'Não consegui verificar o PIN. Tente de novo.' };
     }
@@ -221,19 +220,40 @@ export default function App() {
     setPinAberto(false);
     const p = pendente;
     setPendente(null);
-    if (p) exec(p.label, p.comando); else mostrar('Controles liberados.');
+    entrarEmControle();
+    if (p?.comando) exec(p.label, p.comando);
     return { ok: true };
   };
 
-  const aoCadeado = async () => {
-    if (pin.liberado) {
-      await fetch('/api/pin', { method: 'DELETE' }).catch(() => {});
-      setPin((p) => ({ ...p, liberado: false }));
-      return;
-    }
+  const entrarEmControle = () => {
+    ultimaAcao.current = Date.now();
+    setModo('controlar');
+    mostrar(`Pronto para controlar. Volta para "só olhar" em ${cfg.lockMin} min sem uso.`);
+  };
+
+  const voltarParaOlhar = useCallback(async (aviso = 'Voltou para só olhar.') => {
+    setModo('olhar');
+    setPin((p) => ({ ...p, liberado: false }));
+    await fetch('/api/pin', { method: 'DELETE' }).catch(() => {});
+    mostrar(aviso);
+  }, [mostrar]);
+
+  const aoAlternarModo = () => {
+    if (modo === 'controlar') return voltarParaOlhar();
+    if (conn === 'error') return mostrar('Sem conexão com a LG. Os controles voltam quando reconectar.');
     if (!pin.configurado) return mostrar('Controles desativados: defina APP_PIN (6 dígitos) na hospedagem.');
+    if (pin.liberado) return entrarEmControle();
     abrirPin(null);
   };
+
+  // depois de alguns minutos sem mexer, volta sozinho para "só olhar"
+  useEffect(() => {
+    if (modo !== 'controlar') return;
+    const t = setInterval(() => {
+      if (Date.now() - ultimaAcao.current > cfg.lockMin * 60_000) voltarParaOlhar();
+    }, 10_000);
+    return () => clearInterval(t);
+  }, [modo, cfg.lockMin, voltarParaOlhar]);
 
   // ---- dados / diagnóstico ----
   const exportar = () => {
@@ -291,9 +311,8 @@ export default function App() {
     ...(diag.texto ? [{ k: 'Erro', v: diag.texto, ok: false as const }] : []),
   ];
 
-  const ligadoHa = ligado && ligadoDesde ? agora - ligadoDesde : null;
   const trocarAba = (a: Aba) => { setAba(a); window.scrollTo(0, 0); };
-  const itens: [Aba, string, typeof House][] = [['home', 'Início', House], ['hist', 'Histórico', ChartColumn], ['contas', 'Contas', Receipt], ['set', 'Ajustes', SlidersHorizontal]];
+  const itens: [Aba, string, typeof House][] = [['home', 'Início', House], ['hist', 'Histórico', ChartColumn], ['contas', 'Contas', ReceiptText], ['set', 'Ajustes', SlidersHorizontal]];
 
   return (
     <>
@@ -306,23 +325,17 @@ export default function App() {
             lidoEm={lido}
             draft={draft}
             cmd={cmd}
-            desligaEmH={desligaEmH}
-            ligadoHa={ligadoHa}
-            unlocked={pin.liberado}
-            dicaOculta={ui.dica}
-            avisoOculto={ui.aviso}
+            modo={modo}
+            desligaAs={desligaAs}
             erroUso={erroUso}
             onRetryUso={lerUso}
-            selDia={selDia}
-            onSelDia={setSelDia}
-            onLock={aoCadeado}
+            onModo={aoAlternarModo}
             onRetryConn={() => { setConn('loading'); lerEstado(); }}
             onPower={aoLigar}
             onTemp={aoTemperatura}
             onMode={aoModo}
             onTimer={aoTimer}
-            onHideTip={() => setUi((u) => ({ ...u, dica: true }))}
-            onHideAviso={() => setUi((u) => ({ ...u, aviso: true }))}
+            onIrContas={() => trocarAba('contas')}
           />
         )}
         {aba === 'hist' && <Historico d={dados} />}
