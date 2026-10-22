@@ -11,6 +11,7 @@ import { cicloDe, clampDia, contaAtual, fatiaDaConta, mapaParaDias, tarifaDoMes,
 import { CONTAS_INICIAIS, TARIFAS_INICIAIS } from '@/lib/contas-iniciais';
 import Ajustes from './Ajustes';
 import Contas from './Contas';
+import Introducao from './Introducao';
 import Historico from './Historico';
 import Inicio, { type ConexaoEstado, type Modo } from './Inicio';
 import Pin from './Pin';
@@ -34,6 +35,8 @@ export default function App() {
   const [mapa, setMapa] = usarLocal<Record<string, number>>('ar.dias', {});
   const [contas, setContas] = usarLocal<Record<string, ContaSalva>>('ar.contas', {});
   const [salvo, setSalvo] = usarLocal<Salvo>('ar.device', null);
+  const [introVista, setIntroVista, introPronta] = usarLocal<boolean>('ar.intro', false);
+  const [introAberta, setIntroAberta] = useState(false);
 
   const [aba, setAba] = useState<Aba>('home');
   const [conn, setConn] = useState<ConexaoEstado>('loading');
@@ -342,10 +345,8 @@ export default function App() {
         {aba === 'contas' && <Contas cfg={cfg} setCfg={setCfg} dias={dias} hoje={hoje} diaLeitura={diaLeitura} semArDia={semArDia} contas={contasTodas} salvas={contas} setContas={setContas} />}
         {aba === 'set' && (
           <Ajustes
-            cfg={cfg}
+            d={dados}
             setCfg={setCfg}
-            tarifa={tarifa}
-            desde={dados.desde}
             nomeLg={aparelho?.name ?? ''}
             nDias={dias.length}
             pinConfigurado={pin.configurado}
@@ -353,7 +354,8 @@ export default function App() {
             onExport={exportar}
             onApagar={() => setFolha('apagar')}
             onDiag={() => setFolha('diag')}
-            onIrContas={() => trocarAba('contas')}
+            onIntro={() => setIntroAberta(true)}
+            onToast={mostrar}
           />
         )}
       </main>
@@ -373,6 +375,7 @@ export default function App() {
         <div role="status" style={{ position: 'fixed', left: 18, right: 18, bottom: 104, zIndex: 60, maxWidth: 444, margin: '0 auto', padding: '14px 16px', borderRadius: 16, background: 'var(--ink)', color: 'var(--bg)', fontSize: 14, fontWeight: 700, boxShadow: '0 10px 30px -8px rgba(0,0,0,.4)' }}>{toast}</div>
       )}
 
+      {(introAberta || (introPronta && !introVista)) && <Introducao onFechar={() => { setIntroVista(true); setIntroAberta(false); }} />}
       {pinAberto && <Pin acao={pendente?.label ?? null} onFechar={() => { setPinAberto(false); setPendente(null); }} onConferir={conferirPin} />}
       {folha === 'diag' && <SheetDiag linhas={linhasDiag} testando={diag.testando} onTestar={testar} onFechar={() => setFolha(null)} />}
       {folha === 'apagar' && <SheetApagar desde={dias[0] ? `${dl(parseYmd(dias[0].data))} de ${parseYmd(dias[0].data).getFullYear()}` : ''} onApagar={apagar} onFechar={() => setFolha(null)} />}

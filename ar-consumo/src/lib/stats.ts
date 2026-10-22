@@ -250,3 +250,11 @@ export function refsDeCiclos(refsContas: string[], dias: Dia[], hoje: Date, dia:
   set.add(cicloDe(hoje, dia).ref);
   return [...set].sort();
 }
+
+/** Preço do kWh da conta mais recente que tem consumo: (total − taxas fixas) ÷ kWh. */
+export function tarifaDaUltimaConta(contas: Record<string, ContaSalva>): { mes: string; tarifa: number } | null {
+  const c = Object.values(contas)
+    .filter((x) => x.kwh > 0 && x.valor > x.fixas)
+    .sort((a, b) => b.mes.localeCompare(a.mes))[0];
+  return c ? { mes: c.mes, tarifa: (c.valor - c.fixas) / c.kwh } : null;
+}

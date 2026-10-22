@@ -1,16 +1,16 @@
 'use client';
 
-import { Download, Trash2 } from 'lucide-react';
+import { Download, Eye, Trash2 } from 'lucide-react';
 import type { ReactNode } from 'react';
 import type { Config } from '@/lib/cliente';
-import { brl } from '@/lib/fmt';
+import { brl, brl0, dl, nf, parseNum, parseYmd } from '@/lib/fmt';
+import { custoDe, periodosCiclo, tarifaDaUltimaConta } from '@/lib/stats';
 import { Seg, Switch, card, rotulo } from './ui';
+import type { Dados } from './tipos';
 
 type Props = {
-  cfg: Config;
+  d: Dados;
   setCfg: (f: (c: Config) => Config) => void;
-  tarifa: number;
-  desde: string;
   nomeLg: string;
   nDias: number;
   pinConfigurado: boolean;
@@ -18,7 +18,8 @@ type Props = {
   onExport: () => void;
   onApagar: () => void;
   onDiag: () => void;
-  onIrContas: () => void;
+  onIntro: () => void;
+  onToast: (t: string) => void;
 };
 
 function Secao({ titulo, children }: { titulo: string; children: ReactNode }) {
@@ -31,124 +32,162 @@ function Secao({ titulo, children }: { titulo: string; children: ReactNode }) {
 }
 
 function Linha({ children, ultimo }: { children: ReactNode; ultimo?: boolean }) {
-  return <div style={{ minHeight: 62, padding: '10px 0', borderBottom: ultimo ? 'none' : '1px solid var(--line)', display: 'grid', gap: 6, alignContent: 'center' }}>{children}</div>;
+  return <div style={{ padding: '12px 0', borderBottom: ultimo ? 'none' : '1px solid var(--line)', display: 'grid', gap: 6 }}>{children}</div>;
 }
 
-export default function Ajustes({ cfg, setCfg, tarifa, desde, nomeLg, nDias, pinConfigurado, conectado, onExport, onApagar, onDiag, onIrContas }: Props) {
+const dica = { fontSize: 12.5, fontWeight: 600, color: 'var(--muted)', lineHeight: 1.4 } as const;
+
+/** Rótulo + campo à direita + dica com exemplo e onde achar na conta. */
+function Campo({ rot, unidade, valor, aoMudar, ajuda, tipo = 'decimal', botao }: { rot: string; unidade?: string; valor: string; aoMudar: (v: string) => void; ajuda: string; tipo?: 'decimal' | 'numeric' | 'date'; botao?: ReactNode }) {
+  return (
+    <>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+        <span style={{ fontSize: 15, fontWeight: 700, flex: 1 }}>{rot}</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, width: tipo === 'date' ? 170 : 130 }}>
+          <input className="input" style={{ height: 46, fontSize: 17, textAlign: tipo === 'date' ? 'left' : 'right' }} type={tipo === 'date' ? 'date' : 'text'} inputMode={tipo === 'date' ? undefined : tipo} aria-label={rot} value={valor} onChange={(e) => aoMudar(e.target.value)} />
+          {unidade && <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--muted)' }}>{unidade}</span>}
+        </div>
+      </div>
+      <div style={dica}>{ajuda}</div>
+      {botao}
+    </>
+  );
+}
+
+export default function Ajustes({ d, setCfg, nomeLg, nDias, pinConfigurado, conectado, onExport, onApagar, onDiag, onIntro, onToast }: Props) {
+  const { cfg, dias, hoje, tarifa, tarifas, diaLeitura, contas } = d;
   const set = <K extends keyof Config>(k: K, v: Config[K]) => setCfg((c) => ({ ...c, [k]: v }));
-  const tarifaTxt = (k: 'tariff', v: string) => setCfg((c) => ({ ...c, [k]: v, tariffMode: 'direto', tarifaDefinida: true }));
+  const per = periodosCiclo(dias, hoje, diaLeitura, d.desde, d.base);
+  const acumR = custoDe(per.acum, tarifas, tarifa) + d.base * tarifa;
+
+  const preco = (v: string) => setCfg((c) => ({ ...c, tariff: v, tariffMode: 'direto', tarifaDefinida: true }));
+  const calcularPelaConta = () => {
+    const r = tarifaDaUltimaConta(contas);
+    if (!r) return onToast('Salve uma conta com o consumo em kWh para calcular o preço.');
+    setCfg((c) => ({ ...c, tariff: nf(r.tarifa, 4), tariffMode: 'direto', tarifaDefinida: true, tarifas: { ...c.tarifas, [r.mes]: r.tarifa } }));
+    onToast(`Preço do kWh: ${brl(r.tarifa)}, calculado pela conta ${r.mes.slice(5)}/${r.mes.slice(0, 4)}.`);
+  };
+  const ultimaR = Object.values(contas).sort((a, b) => b.mes.localeCompare(a.mes)).find((c) => c.kwh > 0);
+  const metaDica = `Exemplo: 170. Uma boa referência é o custo do ar na última conta${ultimaR ? ` (a conta ${ultimaR.mes.slice(5)}/${ultimaR.mes.slice(0, 4)} teve ${brl(ultimaR.valor)} no total)` : ''}.`;
+  const metaReais = cfg.goalType === 'R$' ? cfg.goal : nf(parseNum(cfg.goalKwh) * tarifa, 0);
+
   return (
     <>
       <h1 style={{ margin: 0, fontSize: 24, fontWeight: 800, letterSpacing: '-0.02em' }}>Ajustes</h1>
 
-      <button onClick={onIrContas} className="press" style={{ ...card(22, '14px 16px'), textAlign: 'left', display: 'grid', gap: 4 }}>
-        <span style={{ fontWeight: 800 }}>Preencher pela conta de luz</span>
-        <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--muted)', lineHeight: 1.4 }}>Na aba Contas você digita a conta de um mês e o app calcula a tarifa, a meta e o acumulado sozinho.</span>
-      </button>
-
-      <Secao titulo="Ciclo da conta">
+      <Secao titulo="Conta de luz">
+        <Linha>
+          <Campo
+            rot="Preço do kWh"
+            unidade="R$"
+            valor={cfg.tariff}
+            aoMudar={preco}
+            ajuda='Exemplo: 1,19. Na conta, divida o valor da energia (sem a iluminação pública) pelo "Consumo kWh".'
+            botao={<button onClick={calcularPelaConta} className="press" style={{ height: 44, borderRadius: 14, background: 'var(--accent-soft)', color: 'var(--ink)', fontSize: 14, fontWeight: 800 }}>Calcular pela última conta</button>}
+          />
+        </Linha>
+        <Linha>
+          <Campo
+            rot="Dia da leitura"
+            tipo="numeric"
+            valor={cfg.diaLeitura}
+            aoMudar={(v) => set('diaLeitura', v.replace(/\D/g, '').slice(0, 2))}
+            ajuda='Na conta, procure "Data da leitura" ou "Próxima leitura". É o dia em que o medidor é lido todo mês (de 1 a 28).'
+          />
+        </Linha>
         <Linha ultimo>
-          <label style={{ fontSize: 13, fontWeight: 700, color: 'var(--muted)' }}>Dia da leitura da conta
-            <input className="input" inputMode="numeric" value={cfg.diaLeitura} onChange={(e) => set('diaLeitura', e.target.value.replace(/\D/g, '').slice(0, 2))} />
-          </label>
-          <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--muted)', lineHeight: 1.4 }}>
-            A distribuidora lê o medidor todo mês nesse dia (de 1 a 28). A meta, a projeção, o &quot;ciclo atual&quot; e o acumulado seguem de uma leitura à outra, como a conta.
+          <Campo
+            rot="Casa sem o ar"
+            unidade="kWh/dia"
+            valor={cfg.semAr}
+            aoMudar={(v) => set('semAr', v)}
+            ajuda="Quanto a casa gastava por dia antes do ar-condicionado (contas de junho e julho: cerca de 4,3). Serve para estimar a fatia do ar nas contas em que a LG não tem dados."
+          />
+        </Linha>
+      </Secao>
+
+      <Secao titulo="Meta">
+        <Linha>
+          <Campo
+            rot="Quanto quero gastar com o ar por conta"
+            unidade="R$"
+            valor={metaReais}
+            aoMudar={(v) => setCfg((c) => ({ ...c, goal: v, goalType: 'R$' }))}
+            ajuda={metaDica}
+          />
+        </Linha>
+        <Linha>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, fontWeight: 700, fontSize: 15 }}>
+            Avisar quando chegar a 80% da meta <Switch on={cfg.alert80} onClick={() => set('alert80', !cfg.alert80)} label="Avisar quando chegar a 80% da meta" />
+          </div>
+        </Linha>
+        <Linha ultimo>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, fontWeight: 700, fontSize: 15 }}>
+            Avisar quando passar da meta <Switch on={cfg.alert100} onClick={() => set('alert100', !cfg.alert100)} label="Avisar quando passar da meta" />
           </div>
         </Linha>
       </Secao>
 
-      <Secao titulo="Casa sem o ar">
+      <Secao titulo="Aparelho">
+        <Linha>
+          <div style={{ fontSize: 15, fontWeight: 700 }}>Nome do aparelho</div>
+          <input className="input" placeholder={nomeLg || 'Ar-condicionado'} value={cfg.nome} onChange={(e) => set('nome', e.target.value)} />
+        </Linha>
+        <Linha>
+          <div style={{ fontSize: 15, fontWeight: 700 }}>PIN para controlar</div>
+          <div style={dica}>{pinConfigurado ? 'O PIN está definido na hospedagem (variável APP_PIN). Para trocar, altere o valor lá.' : 'Sem PIN, os controles ficam desativados. Defina APP_PIN (6 dígitos) na hospedagem.'}</div>
+        </Linha>
         <Linha ultimo>
-          <label style={{ fontSize: 13, fontWeight: 700, color: 'var(--muted)' }}>Consumo da casa sem o ar-condicionado (kWh por dia)
-            <input className="input" inputMode="decimal" value={cfg.semAr} onChange={(e) => set('semAr', e.target.value)} />
-          </label>
-          <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--muted)', lineHeight: 1.4 }}>
-            Média de antes de o ar ser instalado (contas de junho e julho: cerca de 4,3). Serve para estimar a fatia do ar nos meses em que a LG não tem dados.
-          </div>
+          <div style={{ fontSize: 15, fontWeight: 700 }}>Voltar para &quot;só olhar&quot; depois de</div>
+          <Seg<'1' | '5' | '15'> opts={[['1', '1 min'], ['5', '5 min'], ['15', '15 min']]} cur={String(cfg.lockMin) as '1' | '5' | '15'} onSel={(k) => set('lockMin', Number(k))} />
+          <div style={dica}>Sem mexer no aparelho por esse tempo, o app volta sozinho para o modo que só mostra os números.</div>
         </Linha>
       </Secao>
 
-      <Secao titulo="Tarifa">
+      <Secao titulo="Aparência">
         <Linha ultimo>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span style={{ fontWeight: 800 }}>R$</span>
-            <input className="input" inputMode="decimal" aria-label="Tarifa em reais por kWh" value={cfg.tariff} onChange={(e) => tarifaTxt('tariff', e.target.value)} />
-            <span style={{ fontWeight: 700, color: 'var(--muted)', whiteSpace: 'nowrap' }}>/kWh</span>
-          </div>
-          <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--muted)', lineHeight: 1.4 }}>
-            Preço de 1 kWh. É preenchido pela conta de luz; você também pode digitar à mão.
-          </div>
-        </Linha>
-      </Secao>
-      <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: -6, paddingLeft: 4 }}>Cada mês guarda a tarifa que valia nele: mudar o valor não altera o custo dos meses passados.</div>
-
-      <Secao titulo="Acumulado">
-        <Linha>
-          <label style={{ fontSize: 13, fontWeight: 700, color: 'var(--muted)' }}>Base já gasta (kWh) — soma ao acumulado
-            <input className="input" inputMode="decimal" value={cfg.base} onChange={(e) => set('base', e.target.value)} />
-          </label>
-        </Linha>
-        <Linha ultimo>
-          <label style={{ fontSize: 13, fontWeight: 700, color: 'var(--muted)' }}>Acumular desde
-            <input className="input" type="date" value={cfg.since || desde} onChange={(e) => e.target.value && set('since', e.target.value)} />
-          </label>
-        </Linha>
-      </Secao>
-
-      <Secao titulo="Meta por ciclo">
-        <Linha>
-          <Seg opts={[['R$', 'R$'], ['kWh', 'kWh']]} cur={cfg.goalType} onSel={(k) => set('goalType', k)} />
-        </Linha>
-        <Linha>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <input className="input" inputMode="decimal" aria-label="Meta mensal" value={cfg.goalType === 'R$' ? cfg.goal : cfg.goalKwh} onChange={(e) => set(cfg.goalType === 'R$' ? 'goal' : 'goalKwh', e.target.value)} />
-            <span style={{ fontWeight: 800 }}>{cfg.goalType}</span>
-          </div>
-        </Linha>
-        <Linha>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontWeight: 700 }}>Avisar ao passar de 80% <Switch on={cfg.alert80} onClick={() => set('alert80', !cfg.alert80)} label="Avisar ao passar de 80%" /></div>
-        </Linha>
-        <Linha ultimo>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontWeight: 700 }}>Avisar ao passar de 100% <Switch on={cfg.alert100} onClick={() => set('alert100', !cfg.alert100)} label="Avisar ao passar de 100%" /></div>
-        </Linha>
-      </Secao>
-
-      <Secao titulo="Aparelho e acesso">
-        <Linha>
-          <label style={{ fontSize: 13, fontWeight: 700, color: 'var(--muted)' }}>Nome do aparelho
-            <input className="input" placeholder={nomeLg || 'Ar-condicionado'} value={cfg.nome} onChange={(e) => set('nome', e.target.value)} />
-          </label>
-        </Linha>
-        <Linha>
-          <div style={{ fontWeight: 800 }}>PIN de acesso</div>
-          <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--muted)', lineHeight: 1.4 }}>
-            {pinConfigurado ? 'Definido no servidor (variável APP_PIN). Para trocar, altere o valor na hospedagem.' : 'Não configurado: os controles ficam desativados. Defina APP_PIN (6 dígitos) na hospedagem.'}
-          </div>
-        </Linha>
-        <Linha ultimo>
-          <div style={{ fontWeight: 800, marginBottom: 6 }}>Tema</div>
+          <div style={{ fontSize: 15, fontWeight: 700 }}>Tema</div>
           <Seg opts={[['auto', 'Automático'], ['claro', 'Claro'], ['escuro', 'Escuro']]} cur={cfg.theme} onSel={(k) => set('theme', k)} />
         </Linha>
       </Secao>
 
       <Secao titulo="Dados">
         <Linha>
-          <button onClick={onExport} className="press" style={{ display: 'flex', alignItems: 'center', gap: 10, textAlign: 'left', width: '100%' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'baseline' }}>
+            <span style={{ fontSize: 15, fontWeight: 700 }}>Total desde {dl(parseYmd(d.desde))}</span>
+            <span style={{ fontSize: 15, fontWeight: 800 }}>{nf(per.acumKwh, 0)} kWh · {brl0(acumR)}</span>
+          </div>
+          <div style={dica}>Soma do consumo do ar a partir da data abaixo.</div>
+        </Linha>
+        <Linha>
+          <Campo rot="Somar desde" tipo="date" valor={cfg.since || d.desde} aoMudar={(v) => v && set('since', v)} ajuda="Primeiro dia que entra no total. Por padrão, é o início da conta atual." />
+        </Linha>
+        <Linha>
+          <Campo rot="Somar consumo anterior" unidade="kWh" valor={cfg.base} aoMudar={(v) => set('base', v)} ajuda="Para incluir no total o consumo do ar de antes de o app começar a guardar os dias." />
+        </Linha>
+        <Linha>
+          <button onClick={onExport} className="press" style={{ display: 'flex', alignItems: 'center', gap: 10, textAlign: 'left', width: '100%', minHeight: 44 }}>
             <Download size={20} />
-            <span><div style={{ fontWeight: 800 }}>Exportar CSV</div><div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--muted)' }}>{nDias} dias · data, kWh, R$</div></span>
+            <span><div style={{ fontWeight: 800, fontSize: 15 }}>Exportar planilha (CSV)</div><div style={dica}>{nDias} dias · data, kWh, R$, e as contas</div></span>
+          </button>
+        </Linha>
+        <Linha>
+          <button onClick={onDiag} className="press" style={{ display: 'flex', alignItems: 'center', gap: 10, textAlign: 'left', width: '100%', minHeight: 44 }}>
+            <span style={{ width: 10, height: 10, borderRadius: '50%', background: conectado ? 'var(--green)' : 'var(--red)', flex: 'none', margin: '0 5px' }} />
+            <span style={{ fontWeight: 800, fontSize: 15 }}>Conexão com a LG · {conectado ? 'funcionando' : 'com erro'}</span>
+          </button>
+        </Linha>
+        <Linha>
+          <button onClick={onIntro} className="press" style={{ display: 'flex', alignItems: 'center', gap: 10, textAlign: 'left', width: '100%', minHeight: 44, fontWeight: 800, fontSize: 15 }}>
+            <Eye size={20} /> Rever a introdução
           </button>
         </Linha>
         <Linha ultimo>
-          <button onClick={onApagar} className="press" style={{ display: 'flex', alignItems: 'center', gap: 10, color: 'var(--red)', fontWeight: 800, width: '100%' }}>
-            <Trash2 size={20} /> Apagar histórico local
+          <button onClick={onApagar} className="press" style={{ display: 'flex', alignItems: 'center', gap: 10, color: 'var(--red)', fontWeight: 800, fontSize: 15, width: '100%', minHeight: 44 }}>
+            <Trash2 size={20} /> Apagar histórico deste celular
           </button>
         </Linha>
       </Secao>
-
-      <button onClick={onDiag} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, minHeight: 44, fontSize: 13, fontWeight: 700, color: 'var(--muted)' }}>
-        <span style={{ width: 8, height: 8, borderRadius: '50%', background: conectado ? 'var(--green)' : 'var(--red)' }} />
-        Conexão com a LG · {conectado ? 'conectado' : 'com erro'}
-      </button>
     </>
   );
 }
