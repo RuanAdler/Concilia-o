@@ -2,273 +2,245 @@
 
 import { CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useState } from 'react';
-import { MON, MONTHS, WD, WDL, brl, brl0, cap, dl, nf, parseYmd } from '@/lib/fmt';
+import { analisarConta, type AnaliseConta } from '@/lib/conta-analise';
+import { MONTHS, WD, WDL, brl, brl0, cap, dl, nf, parseNum, parseYmd, ymd } from '@/lib/fmt';
 import { useMontado } from '@/lib/cliente';
-import { agruparCiclos, cicloDe, custoDe, delta, diasNoMes, doMes, faixasSemana, mediaPorDiaSemana, soma, tarifaDoMes } from '@/lib/stats';
-import { Barras, LinhaMedia, Seg, card } from './ui';
+import { addDias, cicloDe, cicloPorRef, custoDe, diasDoPeriodo, diasEntre, mediaPorDiaSemana, previsaoCiclo, refsDeCiclos, soma, tarifaDoMes, type Ciclo } from '@/lib/stats';
+import { Ajuda, Selo } from './selos';
+import { Seg, card } from './ui';
 import type { Dados } from './tipos';
 
-type Vista = 'dia' | 'semana' | 'mes' | 'ano';
+type Vista = 'dia' | 'conta';
 
-const nav = (disabled = false) => ({ width: 44, height: 44, borderRadius: 14, background: 'var(--surface)', border: '1px solid var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: disabled ? 0.35 : 1 }) as const;
+const PLURAL = ['Domingos', 'Segundas', 'Terças', 'Quartas', 'Quintas', 'Sextas', 'Sábados'];
+const MON3 = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+const nomeRef = (ym: string) => `${ym.slice(5)}/${ym.slice(0, 4)}`;
+const venceEm = (fim: string) => MONTHS[Number(fim.slice(5, 7)) % 12];
+const botaoNav = (desligado: boolean) => ({ width: 44, height: 44, borderRadius: 14, background: 'var(--surface)', border: '1px solid var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: desligado ? 0.35 : 1 }) as const;
+const crescer = 'cubic-bezier(.2,.8,.2,1)';
 
 export default function Historico({ d }: { d: Dados }) {
-  const { dias, hoje, tarifa, tarifas } = d;
+  const { cfg, dias, hoje, tarifa, tarifas, diaLeitura, semArDia, contas } = d;
   const montado = useMontado();
   const [vista, setVista] = useState<Vista>('dia');
-  const [ano, setAno] = useState(hoje.getFullYear());
-  const [mes, setMes] = useState(hoje.getMonth());
-  const [selI, setSelI] = useState<number | null>(null);
+  const hojeStr = ymd(hoje);
+  const atual = cicloDe(hoje, diaLeitura);
+  const tarifaMes = tarifaDoMes(tarifas, tarifa, hojeStr.slice(0, 7));
+  const primeiro = dias[0]?.data ?? hojeStr;
 
-  const ehAtual = ano === hoje.getFullYear() && mes === hoje.getMonth();
-  const futuro = ano > hoje.getFullYear() || (ano === hoje.getFullYear() && mes > hoje.getMonth());
-  const dMes = doMes(dias, ano, mes);
-  const dAno = dias.filter((x) => x.data.startsWith(String(ano)));
-  const primeiro = d.primeiro ? parseYmd(d.primeiro) : hoje;
-  const tf = (data: string) => tarifaDoMes(tarifas, tarifa, data.slice(0, 7));
-  const reais = (ds: typeof dias) => custoDe(ds, tarifas, tarifa);
-  const irAtual = () => { setAno(hoje.getFullYear()); setMes(hoje.getMonth()); setSelI(null); };
-  const porMes = vista === 'dia' || vista === 'semana';
+  // todos os ciclos conhecidos (contas + dias guardados + o atual), com as datas reais quando há conta
+  const refs = refsDeCiclos(Object.keys(contas), dias, hoje, diaLeitura);
+  const ciclos: Ciclo[] = refs.map((r) => {
+    if (r === atual.ref) return atual;
+    const c = contas[r];
+    const auto = cicloPorRef(r, diaLeitura);
+    return { ref: r, inicio: c?.inicio ?? auto.inicio, fim: c?.fim ?? auto.fim };
+  });
 
-  const vazio =
-    porMes && !dMes.length
-      ? {
-          titulo: futuro ? `${cap(MONTHS[mes])} ainda não chegou` : `Ainda não há dados de ${MONTHS[mes]}`,
-          texto: futuro
-            ? 'Os dados aparecem aqui conforme os dias passam.'
-            : `O histórico começa a ser guardado a partir do primeiro acesso (${dl(primeiro)} de ${primeiro.getFullYear()}). Os meses vão aparecendo aqui conforme acumulam.`,
-        }
-      : vista === 'ano' && !dAno.length
-        ? { titulo: `Sem dados em ${ano}`, texto: `O histórico começa a ser guardado a partir do primeiro acesso (${dl(primeiro)} de ${primeiro.getFullYear()}).` }
-        : null;
-
-  const anterior = () => {
-    setSelI(null);
-    if (vista === 'ano') return setAno(ano - 1);
-    if (mes === 0) { setMes(11); setAno(ano - 1); } else setMes(mes - 1);
-  };
-  const proximo = () => {
-    setSelI(null);
-    if (vista === 'ano') { if (ano < hoje.getFullYear()) setAno(ano + 1); return; }
-    if (ehAtual || futuro) return;
-    if (mes === 11) { setMes(0); setAno(ano + 1); } else setMes(mes + 1);
-  };
-  const proximoOff = vista === 'ano' ? ano >= hoje.getFullYear() : ehAtual || futuro;
-
-  const kMes = soma(dMes);
-  const media = dMes.length ? kMes / dMes.length : 0;
-  const pior = dMes.reduce<typeof dMes[number] | null>((a, x) => (!a || x.kwh > a.kwh ? x : a), null);
-  const melhor = dMes.reduce<typeof dMes[number] | null>((a, x) => (!a || x.kwh < a.kwh ? x : a), null);
-  const dim = diasNoMes(ano, mes);
-  const mxDia = Math.max(...dMes.map((x) => x.kwh), 1);
-  const sel = selI ?? dMes.length - 1;
-  const hs = dMes[sel];
-  const sub = vista === 'ano' ? '' : ehAtual ? `até hoje, dia ${hoje.getDate()}` : dMes.length && Number(dMes[0].data.slice(8)) > 1 ? `desde o primeiro acesso, dia ${Number(dMes[0].data.slice(8))}` : dMes.length ? 'mês completo' : '';
-
-  const resumo = dMes.length && pior && melhor
-    ? [
-        { l: 'Total', v: `${nf(kMes)} kWh`, s: `${dMes.length} dias com dado`, c: 'var(--ink)' },
-        { l: 'Custo', v: brl(reais(dMes)), s: `tarifa ${brl(tf(dMes[dMes.length - 1].data))}/kWh`, c: 'var(--ink)' },
-        { l: 'Média por dia', v: `${nf(media)} kWh`, s: `${brl(reais(dMes) / dMes.length)} por dia`, c: 'var(--ink)' },
-        { l: 'Pior dia', v: `${nf(pior.kwh)} kWh`, s: `${cap(WD[parseYmd(pior.data).getDay()])}, ${dl(parseYmd(pior.data))}`, c: 'var(--amber)' },
-        { l: 'Melhor dia', v: `${nf(melhor.kwh)} kWh`, s: `${cap(WD[parseYmd(melhor.data).getDay()])}, ${dl(parseYmd(melhor.data))}`, c: 'var(--green)' },
-        { l: 'Projeção', v: ehAtual ? brl0((kMes / hoje.getDate()) * dim * tf(dMes[dMes.length - 1].data)) : '—', s: ehAtual ? 'fechamento no ritmo atual' : 'mês encerrado', c: 'var(--ink)' },
-      ]
-    : [];
-
-  const faixas = faixasSemana(dMes, dim);
-  const mxFaixa = Math.max(...faixas.map((w) => w.k), 1);
-  const diasSemana = mediaPorDiaSemana(dias);
-  const mxSemana = Math.max(...diasSemana.map((x) => x.v), 1);
-  const topSemana = diasSemana.reduce((a, x) => (x.v > a.v ? x : a), diasSemana[0]);
-
-  const meses = agruparCiclos(dias, d.diaLeitura);
-  const cicloAtualRef = cicloDe(hoje, d.diaLeitura).ref;
-  const mxMes = Math.max(...meses.map((m) => m.k), 1);
-  const mxMesR = Math.max(...meses.map((m) => reais(m.dias)), 1);
-
-  const anoMeses = Array.from({ length: 12 }, (_, m) => { const a = doMes(dAno, ano, m); return { m, k: soma(a), n: a.length, r: reais(a) }; });
-  const mxAno = Math.max(...anoMeses.map((x) => x.r), 1);
-  const topAno = anoMeses.reduce((a, x) => (x.r > a.r ? x : a), anoMeses[0]);
+  const [selRef, setSelRef] = useState<string>(atual.ref);
+  const [selDia, setSelDia] = useState<string | null>(null);
+  const [selConta, setSelConta] = useState<string>(atual.ref);
 
   return (
     <>
-      <h1 style={{ margin: 0, fontSize: 24, fontWeight: 800, letterSpacing: '-0.02em' }}>Histórico</h1>
-      <Seg<Vista> opts={[['dia', 'Dia'], ['semana', 'Semana'], ['mes', 'Mês'], ['ano', 'Ano']]} cur={vista} onSel={(v) => { setVista(v); setSelI(null); }} />
+      <header>
+        <h1 style={{ margin: 0, fontSize: 24, fontWeight: 800, letterSpacing: '-0.02em' }}>Histórico</h1>
+        <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--muted)' }}>Tudo aqui segue a conta de luz: de um dia {diaLeitura} ao outro.</div>
+      </header>
+      <Seg<Vista> opts={[['dia', 'Dia a dia'], ['conta', 'Conta a conta']]} cur={vista} onSel={setVista} />
 
-      {vista !== 'mes' && (
+      {vista === 'dia' ? diaADia() : contaAConta()}
+    </>
+  );
+
+  // ---------------------------------------------------------------- Dia a dia
+  function diaADia() {
+    const i = Math.max(0, ciclos.findIndex((c) => c.ref === selRef));
+    const ciclo = ciclos[i];
+    const andamento = ciclo.ref === atual.ref;
+    const doCiclo = diasDoPeriodo(dias, ciclo.inicio, ciclo.fim).filter((x) => x.data <= hojeStr);
+    const totalDias = diasEntre(ciclo.inicio, ciclo.fim);
+    const decorridos = andamento ? diasEntre(ciclo.inicio, hojeStr) + 1 : totalDias;
+    const kwh = soma(doCiclo);
+    const custo = custoDe(doCiclo, tarifas, tarifa);
+    const max = Math.max(...doCiclo.map((x) => x.kwh), 0.1);
+    const slots = Array.from({ length: totalDias }, (_, n) => ymd(addDias(parseYmd(ciclo.inicio), n)));
+    const selecionado = selDia && slots.includes(selDia) ? selDia : doCiclo[doCiclo.length - 1]?.data ?? null;
+    const selK = selecionado ? doCiclo.find((x) => x.data === selecionado)?.kwh ?? null : null;
+    const caro = doCiclo.reduce<typeof doCiclo[number] | null>((m, x) => (!m || x.kwh > m.kwh ? x : m), null);
+    const semana = mediaPorDiaSemana(dias);
+    const topSemana = semana.reduce((m, x) => (x.v > m.v ? x : m), semana[0]);
+    const custoDia = (x: { data: string; kwh: number }) => x.kwh * tarifaDoMes(tarifas, tarifa, x.data.slice(0, 7));
+
+    return (
+      <>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <button onClick={anterior} aria-label="Anterior" className="press" style={nav()}><ChevronLeft size={22} /></button>
+          <button onClick={() => { setSelRef(ciclos[i - 1].ref); setSelDia(null); }} disabled={i === 0} aria-label="Conta anterior" className="press" style={botaoNav(i === 0)}><ChevronLeft size={22} /></button>
           <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: 17, fontWeight: 800 }}>{vista === 'ano' ? ano : `${cap(MONTHS[mes])} ${ano}`}</div>
-            <div style={{ fontSize: 12, color: 'var(--muted)', minHeight: 16 }}>{sub}</div>
+            <div style={{ fontSize: 17, fontWeight: 800 }}>Conta {nomeRef(ciclo.ref)}</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)' }}>{dl(parseYmd(ciclo.inicio))} a {dl(parseYmd(ciclo.fim))}{andamento ? ' · em andamento' : ` · vence em ${venceEm(ciclo.fim)}`}</div>
           </div>
-          <button onClick={proximo} aria-label="Próximo" className="press" style={nav(proximoOff)}><ChevronRight size={22} /></button>
+          <button onClick={() => { setSelRef(ciclos[i + 1].ref); setSelDia(null); }} disabled={i === ciclos.length - 1} aria-label="Próxima conta" className="press" style={botaoNav(i === ciclos.length - 1)}><ChevronRight size={22} /></button>
         </div>
-      )}
 
-      {vazio && (
-        <div style={{ ...card(26, '32px 24px'), textAlign: 'center', display: 'grid', justifyItems: 'center', gap: 10 }}>
-          <div style={{ width: 72, height: 72, borderRadius: 24, background: 'var(--accent-soft)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><CalendarDays size={32} color="var(--accent)" /></div>
-          <div style={{ fontSize: 18, fontWeight: 800 }}>{vazio.titulo}</div>
-          <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--muted)', lineHeight: 1.45 }}>{vazio.texto}</div>
-          <button onClick={irAtual} className="press" style={{ height: 46, padding: '0 22px', borderRadius: 16, background: 'var(--accent)', color: 'var(--on-accent)', fontWeight: 800, fontSize: 15 }}>Ver o mês mais recente</button>
-        </div>
-      )}
-
-      {vista === 'dia' && !vazio && (
-        <>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            {resumo.map((r) => (
-              <div key={r.l} style={card(18, '12px 14px')}>
-                <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--muted)' }}>{r.l}</div>
-                <div style={{ fontSize: 19, fontWeight: 800, color: r.c }}>{r.v}</div>
-                <div style={{ fontSize: 12, color: 'var(--muted)' }}>{r.s}</div>
-              </div>
-            ))}
+        {doCiclo.length === 0 ? (
+          <div style={{ ...card(26, '30px 22px'), textAlign: 'center', display: 'grid', justifyItems: 'center', gap: 10 }}>
+            <div style={{ width: 72, height: 72, borderRadius: 24, background: 'var(--accent-soft)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><CalendarDays size={32} color="var(--accent)" /></div>
+            <div style={{ fontSize: 18, fontWeight: 800 }}>Esta conta é de antes do app guardar o dia a dia</div>
+            <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--muted)', lineHeight: 1.45 }}>
+              O app começou a guardar o consumo de cada dia em {dl(parseYmd(primeiro))} de {primeiro.slice(0, 4)}. Para esta conta, veja o total em Conta a conta.
+            </div>
+            <button onClick={() => { setSelConta(ciclo.ref); setVista('conta'); }} className="press" style={{ height: 46, padding: '0 22px', borderRadius: 16, background: 'var(--accent)', color: 'var(--on-accent)', fontWeight: 800, fontSize: 15 }}>Ver Conta a conta</button>
           </div>
-          <section style={card(26, '18px 16px 14px')}>
-            {hs && (
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
-                <span style={{ fontSize: 15, fontWeight: 800 }}>{cap(WD[parseYmd(hs.data).getDay()])}, {dl(parseYmd(hs.data))}</span>
-                <span style={{ fontSize: 14, fontWeight: 700 }}>{nf(hs.kwh)} kWh · {brl(hs.kwh * tf(hs.data))}</span>
-              </div>
-            )}
-            <div style={{ position: 'relative' }}>
-              <Barras
-                altura={150}
-                itens={Array.from({ length: dim }, (_, i) => {
-                  const idx = dMes.findIndex((y) => Number(y.data.slice(8)) === i + 1);
-                  if (idx < 0) return { h: '8%', bg: 'transparent', bd: '1.5px dashed var(--line)' };
-                  const x = dMes[idx];
-                  return { h: montado ? `${Math.max(3, (x.kwh / mxDia) * 100)}%` : '0%', bg: idx === sel ? 'var(--ink)' : 'var(--accent)', aria: `${dl(parseYmd(x.data))}: ${nf(x.kwh)} kWh`, onTap: () => setSelI(idx) };
-                })}
-              />
-              <LinhaMedia pct={(media / mxDia) * 100} />
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, fontWeight: 700, color: 'var(--muted)', marginTop: 6 }}>
-              <span>1</span><span>- - média {nf(media)} kWh</span><span>{dim}</span>
-            </div>
-          </section>
-          <section style={{ ...card(22, '4px 16px') }}>
-            {[...dMes].reverse().map((x, i, arr) => {
-              const t = x === pior ? 'pior' : x === melhor ? 'melhor' : '';
-              return (
-                <div key={x.data} style={{ display: 'grid', gridTemplateColumns: '62px 1fr 64px 74px', alignItems: 'center', gap: 8, minHeight: 50, borderBottom: i < arr.length - 1 ? '1px solid var(--line)' : 'none' }}>
-                  <div><div style={{ fontSize: 14, fontWeight: 800 }}>{dl(parseYmd(x.data))}</div><div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{WDL[parseYmd(x.data).getDay()]}</div></div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span style={{ height: 6, borderRadius: 3, width: `${Math.max(4, (x.kwh / mxDia) * 100) * 0.7}%`, background: t === 'pior' ? 'var(--amber-fill)' : t === 'melhor' ? 'var(--green)' : 'var(--bar)' }} />
-                    {t && <span style={{ fontSize: 11, fontWeight: 800, color: t === 'pior' ? 'var(--amber)' : 'var(--green)' }}>{t}</span>}
-                  </div>
-                  <span style={{ fontSize: 14, fontWeight: 700, textAlign: 'right' }}>{nf(x.kwh)}</span>
-                  <span style={{ fontSize: 14, fontWeight: 800, textAlign: 'right' }}>{brl(x.kwh * tf(x.data))}</span>
-                </div>
-              );
-            })}
-          </section>
-        </>
-      )}
-
-      {vista === 'semana' && !vazio && (
-        <>
-          <section style={card(26, '18px 16px')}>
-            <div style={{ fontSize: 15, fontWeight: 800, marginBottom: 12 }}>kWh por semana do mês</div>
-            <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10, height: 160 }}>
-              {faixas.map((w) => (
-                <div key={w.a} style={{ flex: 1, height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', alignItems: 'center', gap: 4 }}>
-                  <span style={{ fontSize: 12, fontWeight: 800 }}>{w.n ? nf(w.k, 0) : '—'}</span>
-                  <span style={{ width: '100%', height: montado && w.n ? `${Math.max(4, (w.k / mxFaixa) * 82)}%` : '2%', background: w.n ? 'var(--accent)' : 'var(--line)', borderRadius: '6px 6px 3px 3px', transition: 'height .7s cubic-bezier(.2,.8,.2,1)' }} />
-                  <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>{w.a}–{w.b}</span>
+        ) : (
+          <>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 10 }}>
+              {[
+                { r: 'Custo do ar', v: brl0(custo), s: '≈ estimativa' },
+                { r: 'Consumo', v: `${nf(kwh, 0)} kWh`, s: '● real · LG' },
+                { r: 'Por dia', v: `${nf(kwh / doCiclo.length, 1)} kWh`, s: brl(custo / doCiclo.length) },
+              ].map((t) => (
+                <div key={t.r} style={card(18, '12px 12px')}>
+                  <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--muted)' }}>{t.r}</div>
+                  <div style={{ fontSize: 19, fontWeight: 800, letterSpacing: '-0.02em' }}>{t.v}</div>
+                  <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--muted)' }}>{t.s}</div>
                 </div>
               ))}
             </div>
-          </section>
-          <section style={{ ...card(26, '18px 20px'), display: 'grid', gap: 10 }}>
-            <div style={{ fontSize: 15, fontWeight: 800 }}>Dia da semana mais gastador</div>
-            <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--muted)' }}>
-              {dias.length > 6 ? `${cap(WDL[topSemana.w])} é o dia que mais gasta: média de ${nf(topSemana.v)} kWh (${brl(topSemana.v * tarifa)}).` : 'Precisa de pelo menos uma semana de dados.'}
-            </div>
-            {diasSemana.map((x) => (
-              <div key={x.w} style={{ display: 'grid', gridTemplateColumns: '38px 1fr 70px', alignItems: 'center', gap: 10 }}>
-                <span style={{ fontSize: 13, fontWeight: 700, color: x === topSemana ? 'var(--ink)' : 'var(--muted)' }}>{cap(WD[x.w])}</span>
-                <div style={{ height: 12, borderRadius: 6, background: 'var(--surface2)' }}><div style={{ height: '100%', borderRadius: 6, width: `${montado ? (x.v / mxSemana) * 100 : 0}%`, background: x === topSemana ? 'var(--amber-fill)' : 'var(--bar)', transition: 'width 1s cubic-bezier(.2,.8,.2,1)' }} /></div>
-                <span style={{ fontSize: 13, fontWeight: 700, textAlign: 'right' }}>{nf(x.v)} kWh</span>
-              </div>
-            ))}
-            <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>média de kWh por dia, todo o histórico</div>
-          </section>
-        </>
-      )}
 
-      {vista === 'mes' && (
-        meses.length === 0 ? (
-          <div style={{ ...card(26, '28px 24px'), textAlign: 'center', fontSize: 14, fontWeight: 600, color: 'var(--muted)' }}>Ainda não há meses para comparar.</div>
-        ) : (
-          <>
-            <section style={card(26, '18px 16px')}>
-              <div style={{ display: 'flex', gap: 14, fontSize: 12, fontWeight: 700, color: 'var(--muted)', marginBottom: 10 }}>
-                <span><i style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 3, background: 'var(--accent)', marginRight: 5 }} />kWh</span>
-                <span><i style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 3, background: 'var(--slate)', marginRight: 5 }} />R$</span>
+            <section style={card(26, '18px 16px 14px')}>
+              <div style={{ minHeight: 40, marginBottom: 10 }}>
+                {selecionado && (
+                  <div style={{ fontSize: 15, fontWeight: 800 }}>
+                    {cap(WDL[parseYmd(selecionado).getDay()])}, {dl(parseYmd(selecionado))}:{' '}
+                    {selK != null ? `${nf(selK)} kWh · ${brl(custoDia({ data: selecionado, kwh: selK }))}` : 'sem dado'}
+                    {selecionado === hojeStr ? ' (ainda contando)' : ''}
+                  </div>
+                )}
               </div>
-              <div style={{ display: 'flex', alignItems: 'flex-end', gap: 14, height: 170 }}>
-                {meses.slice(-6).map((m) => {
-                  const r = reais(m.dias);
-                  const emAndamento = m.ym === cicloAtualRef;
+              <div style={{ display: 'flex', alignItems: 'flex-end', gap: 2, height: 150 }}>
+                {slots.map((data) => {
+                  const k = doCiclo.find((x) => x.data === data)?.kwh ?? null;
                   return (
-                    <div key={m.ym} style={{ flex: 1, height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', alignItems: 'center', gap: 4 }}>
-                      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 4, width: '100%', height: '82%' }}>
-                        {[{ v: m.k, mx: mxMes, bg: 'var(--accent)', t: nf(m.k, 0) }, { v: r, mx: mxMesR, bg: 'var(--slate)', t: nf(r, 0) }].map((b, i) => (
-                          <div key={i} style={{ flex: 1, height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', alignItems: 'center' }}>
-                            <span style={{ fontSize: 10.5, fontWeight: 800 }}>{b.t}</span>
-                            <span style={{ width: '100%', height: montado ? `${(b.v / b.mx) * 80}%` : '0%', background: b.bg, borderRadius: '5px 5px 2px 2px', transition: 'height .7s cubic-bezier(.2,.8,.2,1)' }} />
-                          </div>
-                        ))}
-                      </div>
-                      <span style={{ fontSize: 12, fontWeight: 800 }}>{cap(MON[m.mes])}{emAndamento ? '*' : ''}</span>
-                    </div>
+                    <button key={data} onClick={() => setSelDia(data)} aria-label={`${dl(parseYmd(data))}: ${k != null ? `${nf(k)} kWh` : 'sem dado'}`} style={{ flex: 1, height: '100%', display: 'flex', alignItems: 'flex-end' }}>
+                      <span style={{ display: 'block', width: '100%', height: k != null ? (montado ? `${Math.max(4, (k / max) * 100)}%` : '0%') : '6%', borderRadius: '3px 3px 2px 2px', border: k != null ? 'none' : '1.5px dashed var(--line)', background: k == null ? 'transparent' : data === selecionado ? 'var(--ink)' : data === hojeStr ? 'var(--accent)' : 'var(--bar)', transition: `height .7s ${crescer}` }} />
+                    </button>
                   );
                 })}
               </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, fontWeight: 700, color: 'var(--muted)', marginTop: 6 }}>
+                <span>{dl(parseYmd(slots[0]))}</span><span>{dl(parseYmd(slots[Math.floor(slots.length / 2)]))}</span><span>{dl(parseYmd(slots[slots.length - 1]))}</span>
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8 }}>Toque numa barra para ver o dia. Tracejado = sem dado ou ainda não chegou.</div>
             </section>
-            <section style={card(22, '4px 16px')}>
-              {meses.slice().reverse().map((m, i, arr) => {
-                const prev = arr[i + 1];
-                const dd = prev ? delta(m.k / m.n, prev.k / prev.n) : null;
-                const emAndamento = m.ym === cicloAtualRef;
-                return (
-                  <div key={m.ym} style={{ display: 'grid', gridTemplateColumns: '1.3fr .8fr 1fr .7fr', alignItems: 'center', gap: 6, minHeight: 56, borderBottom: i < arr.length - 1 ? '1px solid var(--line)' : 'none' }}>
-                    <div><div style={{ fontSize: 14, fontWeight: 800 }}>{cap(MONTHS[m.mes])}</div><div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{dl(parseYmd(m.inicio))} a {dl(parseYmd(m.fim))} · {m.n} dias{emAndamento ? ' · em andamento' : ''}</div></div>
-                    <span style={{ fontSize: 13, fontWeight: 700 }}>{nf(m.k / m.n)} kWh/dia</span>
-                    <span style={{ fontSize: 14, fontWeight: 800, textAlign: 'right' }}>{brl0(reais(m.dias))}</span>
-                    <span style={{ fontSize: 13, fontWeight: 800, textAlign: 'right', color: dd ? (dd.subiu ? 'var(--amber)' : 'var(--green)') : 'var(--muted)' }}>{dd ? `${dd.subiu ? '+' : '−'}${nf(dd.pct, 0)}%` : '—'}</span>
-                  </div>
-                );
-              })}
-            </section>
-            <div style={{ fontSize: 12, color: 'var(--muted)' }}>Cada linha é um ciclo da conta de luz (de uma leitura à outra), com o nome do mês da conta. * ciclo em andamento. A variação (Δ) compara a média por dia, já que o primeiro e o último ciclos podem estar incompletos.</div>
-          </>
-        )
-      )}
 
-      {vista === 'ano' && !vazio && (
-        <>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            <div style={card(18, '12px 14px')}><div style={{ fontSize: 12, fontWeight: 800, color: 'var(--muted)' }}>Total no ano</div><div style={{ fontSize: 19, fontWeight: 800 }}>{brl0(reais(dAno))}</div><div style={{ fontSize: 12, color: 'var(--muted)' }}>{nf(soma(dAno), 0)} kWh · {dAno.length} dias</div></div>
-            <div style={card(18, '12px 14px')}><div style={{ fontSize: 12, fontWeight: 800, color: 'var(--muted)' }}>Mês mais caro</div><div style={{ fontSize: 19, fontWeight: 800 }}>{topAno.n ? cap(MONTHS[topAno.m]) : '—'}</div><div style={{ fontSize: 12, color: 'var(--muted)' }}>{topAno.n ? brl0(topAno.r) : ''}</div></div>
+            <section style={{ ...card(22, '14px 16px'), display: 'grid', gap: 8, fontSize: 14, fontWeight: 600, lineHeight: 1.45 }}>
+              {andamento && <div>Conta em andamento: dia {decorridos} de {totalDias}.</div>}
+              {!andamento && doCiclo.length < totalDias && <div>O app só tem {doCiclo.length} de {totalDias} dias desta conta.</div>}
+              {caro && <div>Dia mais caro: {WDL[parseYmd(caro.data).getDay()]}, {dl(parseYmd(caro.data))} ({brl(custoDia(caro))}).</div>}
+              {dias.length >= 14 && topSemana.v > 0 && <div>{PLURAL[topSemana.w]} costumam custar mais: em média {brl(topSemana.v * tarifaMes)} por dia.</div>}
+            </section>
+          </>
+        )}
+      </>
+    );
+  }
+
+  // ------------------------------------------------------------- Conta a conta
+  function contaAConta() {
+    const meta = (cfg.goalType === 'R$' ? parseNum(cfg.goal) : parseNum(cfg.goalKwh) * tarifaMes) || 0;
+    type Linha = { ref: string; ciclo: Ciclo; arR: number | null; prevR: number | null; tipo: 'lg' | 'estimativa' | 'diferenca' | 'antes' | 'andamento' | 'semdados'; a: AnaliseConta | null };
+    const linhas: Linha[] = ciclos.map((ciclo) => {
+      if (ciclo.ref === atual.ref) {
+        const noCiclo = diasDoPeriodo(dias, ciclo.inicio, ciclo.fim).filter((x) => x.data <= hojeStr);
+        const gasto = custoDe(noCiclo, tarifas, tarifa);
+        const prev = previsaoCiclo(noCiclo, hojeStr, diasEntre(ciclo.inicio, ciclo.fim));
+        return { ref: ciclo.ref, ciclo, arR: gasto, prevR: prev != null ? Math.max(prev * tarifaMes, gasto) : null, tipo: 'andamento', a: null };
+      }
+      const c = contas[ciclo.ref];
+      if (c) {
+        const a = analisarConta(c, dias, semArDia);
+        const tipo = a.tipo === 'antes' ? 'antes' : a.tipo === 'incompleta' || a.arR == null ? 'semdados' : (a.tipo as 'lg' | 'estimativa' | 'diferenca');
+        return { ref: ciclo.ref, ciclo, arR: tipo === 'antes' ? 0 : a.arR, prevR: null, tipo, a };
+      }
+      // ciclo com dias guardados mas sem conta lançada
+      const dc = diasDoPeriodo(dias, ciclo.inicio, ciclo.fim);
+      return { ref: ciclo.ref, ciclo, arR: dc.length ? custoDe(dc, tarifas, tarifa) : null, prevR: null, tipo: dc.length ? 'estimativa' : 'semdados', a: null };
+    });
+    const maxR = Math.max(...linhas.map((l) => Math.max(l.arR ?? 0, l.prevR ?? 0)), meta, 1) * 1.1;
+    const alvo = linhas.find((l) => l.ref === selConta) ?? linhas[linhas.length - 1];
+    const idx = linhas.indexOf(alvo);
+    const anterior = idx > 0 ? linhas[idx - 1] : null;
+    const base = alvo.tipo === 'andamento' ? alvo.prevR : alvo.arR;
+    const comparavel = base != null && anterior && anterior.arR != null && anterior.tipo !== 'antes' && anterior.tipo !== 'semdados' && anterior.arR >= 25 ? anterior.arR : null; // base pequena demais não serve de comparação
+    const dif = comparavel != null && base != null ? base - comparavel : null;
+    const seloTipo = alvo.tipo === 'lg' ? <Selo tipo="real" texto="Real · LG" /> : alvo.tipo === 'diferenca' ? <Selo tipo="diferenca" /> : alvo.tipo === 'estimativa' ? <Selo tipo="estimativa" /> : alvo.tipo === 'andamento' ? <Selo tipo="previsao" /> : <Selo tipo="neutro" texto={alvo.tipo === 'antes' ? 'Antes do ar' : 'Sem dados do ar'} />;
+    const decorridos = diasEntre(atual.inicio, hojeStr) + 1;
+
+    return (
+      <section style={{ ...card(26, '18px 16px 16px'), display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start', gap: 12 }}>
+        <div style={{ flex: 1, minWidth: 0, paddingLeft: 4 }}>
+          <h2 style={{ margin: 0, fontSize: 17, fontWeight: 800 }}>Custo do ar em cada conta</h2>
+          <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--muted)' }}>o mês é o da conta de luz{meta > 0 ? ` · — meta ${brl0(meta)}` : ''}</div>
+        </div>
+        <Ajuda>Cada barra é uma conta de luz (de dia {diaLeitura} a dia {diaLeitura}). Barra cheia: consumo informado pela LG. Barra clara com &quot;≈&quot;: estimada pela diferença com o consumo da casa sem o ar. Listrado: previsão até o fim desta conta.</Ajuda>
+
+        <div style={{ flexBasis: '100%', position: 'relative' }}>
+          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, height: 170 }}>
+            {linhas.slice(-7).map((l) => {
+              const sel = l.ref === alvo.ref;
+              const sol = l.arR ?? 0;
+              const prevExtra = l.prevR != null ? Math.max(0, l.prevR - sol) : 0;
+              const vazio = l.tipo === 'antes' || l.tipo === 'semdados';
+              return (
+                <button key={l.ref} onClick={() => setSelConta(l.ref)} aria-label={`Conta ${nomeRef(l.ref)}`} style={{ flex: 1, height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', alignItems: 'center', gap: 4 }}>
+                  <span style={{ fontSize: 11, fontWeight: 800 }}>{l.tipo === 'antes' ? 'sem ar' : l.tipo === 'semdados' ? '?' : `${l.tipo === 'diferenca' ? '≈ ' : ''}${nf(l.tipo === 'andamento' && l.prevR != null ? l.prevR : sol, 0)}`}</span>
+                  <span style={{ width: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', height: `${montado ? Math.max(4, ((sol + prevExtra) / maxR) * 85) : 0}%`, minHeight: vazio ? 14 : 0, transition: `height .7s ${crescer}`, outline: sel ? '2px solid var(--ink)' : 'none', outlineOffset: 3, borderRadius: 6, border: vazio ? '1.5px dashed var(--muted)' : 'none', overflow: 'hidden' }}>
+                    {prevExtra > 0 && <span style={{ flex: prevExtra, backgroundImage: 'repeating-linear-gradient(135deg, var(--accent) 0 3px, transparent 3px 7px)' }} />}
+                    {!vazio && <span style={{ flex: Math.max(sol, 0.01), background: l.tipo === 'lg' || l.tipo === 'andamento' ? 'var(--accent)' : 'var(--bar)' }} />}
+                  </span>
+                  <span style={{ fontSize: 12, fontWeight: 800, color: sel ? 'var(--ink)' : 'var(--muted)' }}>{MON3[Number(l.ref.slice(5, 7)) - 1]}</span>
+                </button>
+              );
+            })}
           </div>
-          <section style={card(26, '18px 16px 14px')}>
-            <div style={{ display: 'flex', alignItems: 'flex-end', gap: 5, height: 150 }}>
-              {anoMeses.map((x) => (
-                <div key={x.m} style={{ flex: 1, height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', alignItems: 'center', gap: 4 }}>
-                  <span style={{ width: '100%', height: x.n ? (montado ? `${Math.max(4, (x.r / mxAno) * 90)}%` : '0%') : '10%', background: x.n ? (x.m === hoje.getMonth() && ano === hoje.getFullYear() ? 'var(--accent)' : 'var(--bar)') : 'transparent', border: x.n ? 'none' : '1.5px dashed var(--line)', borderRadius: '5px 5px 2px 2px', transition: 'height .7s cubic-bezier(.2,.8,.2,1)' }} />
-                  <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>{MON[x.m][0].toUpperCase()}</span>
+          {meta > 0 && (
+            <div style={{ position: 'absolute', left: 0, right: 0, bottom: `calc(${(meta / maxR) * 85}% + 24px)`, borderTop: '1.5px dashed var(--ink)', opacity: 0.55, pointerEvents: 'none' }} />
+          )}
+        </div>
+
+        <div style={{ flexBasis: '100%', borderTop: '1px solid var(--line)', paddingTop: 14, display: 'grid', gap: 6 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+            <span style={{ fontSize: 17, fontWeight: 800 }}>Conta {nomeRef(alvo.ref)}</span>
+            {seloTipo}
+          </div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--muted)' }}>{dl(parseYmd(alvo.ciclo.inicio))} a {dl(parseYmd(alvo.ciclo.fim))}</div>
+          {alvo.tipo === 'antes' ? (
+            <div style={{ fontSize: 15, fontWeight: 700, lineHeight: 1.4 }}>Nesta conta o ar ainda não existia{alvo.a ? `: a casa gastou ${nf(alvo.a.c.kwh, 0)} kWh sozinha.` : '.'}</div>
+          ) : alvo.arR == null ? (
+            <div style={{ fontSize: 15, fontWeight: 700 }}>Sem dados do ar neste período.</div>
+          ) : (
+            <>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 40, fontWeight: 800, letterSpacing: '-0.04em', lineHeight: 1.05 }}>{brl0(alvo.tipo === 'andamento' && alvo.prevR != null ? alvo.prevR : alvo.arR)}</span>
+                <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--muted)' }}>{alvo.tipo === 'andamento' ? (alvo.prevR != null ? 'previsão de ar' : 'de ar até agora') : 'de ar'}</span>
+              </div>
+              {alvo.tipo === 'andamento' ? (
+                <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--muted)', lineHeight: 1.4 }}>
+                  Conta em andamento: dia {decorridos} de {diasEntre(atual.inicio, atual.fim)}. {brl0(alvo.arR)} até agora{alvo.prevR != null ? `, previsão ${brl0(alvo.prevR)}` : ''}.
                 </div>
-              ))}
+              ) : alvo.a && alvo.a.f.share != null ? (
+                <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--muted)' }}>{nf(alvo.a.f.share * 100, 0)}% da conta de luz de {brl(alvo.a.c.valor)}</div>
+              ) : null}
+            </>
+          )}
+          {dif != null && Math.abs(dif) >= 1 && comparavel != null && (
+            <div style={{ fontSize: 14, fontWeight: 800, color: dif > 0 ? 'var(--amber)' : 'var(--green)' }}>
+              {dif > 0 ? '↑' : '↓'} {brl0(Math.abs(dif))} a {dif > 0 ? 'mais' : 'menos'} que a conta anterior ({dif > 0 ? '+' : '−'}{nf((Math.abs(dif) / comparavel) * 100, 0)}%){alvo.tipo === 'andamento' ? ', pela previsão' : ''}
             </div>
-            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8 }}>Barras tracejadas são meses sem dados (o histórico só existe desde o primeiro acesso).</div>
-          </section>
-        </>
-      )}
-    </>
-  );
+          )}
+        </div>
+      </section>
+    );
+  }
 }
