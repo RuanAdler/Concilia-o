@@ -4,9 +4,10 @@ import type { Metadata, Viewport } from 'next';
 export const metadata: Metadata = {
   title: 'Consumo do Ar',
   description: 'Acompanhe quanto o ar-condicionado consome e custa',
+  appleWebApp: { capable: true, title: 'Consumo do Ar', statusBarStyle: 'default' },
 };
 
-export const viewport: Viewport = { width: 'device-width', initialScale: 1, viewportFit: 'cover' };
+export const viewport: Viewport = { width: 'device-width', initialScale: 1, viewportFit: 'cover', themeColor: '#0075ad' };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
