@@ -1,5 +1,5 @@
 import type { Config } from '@/lib/cliente';
-import type { Tarifas, Dia } from '@/lib/stats';
+import type { ContaSalva, Tarifas, Dia } from '@/lib/stats';
 
 export type Cmd = { status: 'pending' | 'ok' | 'error'; label: string; retry?: () => void } | null;
 
@@ -13,4 +13,5 @@ export type Dados = {
   desde: string;
   base: number;
   primeiro: string;
+  contas: Record<string, ContaSalva>;
 };

@@ -1,21 +1,22 @@
 'use client';
 
-import { ChartColumn, House, SlidersHorizontal } from 'lucide-react';
+import { ChartColumn, House, Receipt, SlidersHorizontal } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CONFIG_PADRAO, usarLocal, type Config } from '@/lib/cliente';
 import type { Comando, Device, Mode } from '@/lib/device';
 import { MODES } from '@/lib/device';
 import { mesclarDias, type DiaEnergia } from '@/lib/energia';
 import { dl, hhmm, nf, parseNum, parseYmd, ymd } from '@/lib/fmt';
-import { custoDe, mapaParaDias, tarifaDoMes } from '@/lib/stats';
+import { fatiaDaConta, contaAtual, mapaParaDias, tarifaDoMes, type ContaSalva } from '@/lib/stats';
 import Ajustes from './Ajustes';
+import Contas from './Contas';
 import Historico from './Historico';
 import Inicio, { type ConexaoEstado } from './Inicio';
 import Pin from './Pin';
 import { SheetApagar, SheetDiag, type DiagLinha } from './Sheets';
 import type { Cmd, Dados } from './tipos';
 
-type Aba = 'home' | 'hist' | 'set';
+type Aba = 'home' | 'hist' | 'contas' | 'set';
 type Salvo = { device: Device; lidoEm: number } | null;
 type Pendente = { label: string; comando: Comando } | null;
 
@@ -26,6 +27,7 @@ export default function App() {
   // configurações antigas não têm os campos novos: completa com o padrão
   const cfg = useMemo<Config>(() => ({ ...CONFIG_PADRAO, ...cfgSalvo, conta: { ...CONFIG_PADRAO.conta, ...cfgSalvo.conta } }), [cfgSalvo]);
   const [mapa, setMapa] = usarLocal<Record<string, number>>('ar.dias', {});
+  const [contas, setContas] = usarLocal<Record<string, ContaSalva>>('ar.contas', {});
   const [salvo, setSalvo] = usarLocal<Salvo>('ar.device', null);
   const [ui, setUi] = usarLocal<{ dica: boolean; aviso: boolean }>('ar.ui', { dica: false, aviso: false });
   const [ligadoDesde, setLigadoDesde] = usarLocal<number | null>('ar.ligadoDesde', null);
@@ -65,7 +67,7 @@ export default function App() {
   const hoje = useMemo(() => new Date(agora), [agora]);
   const tarifa = cfg.tariffMode === 'direto' ? parseNum(cfg.tariff) : parseNum(cfg.billKwh) ? parseNum(cfg.billValue) / parseNum(cfg.billKwh) : 0;
   const primeiro = dias[0]?.data ?? ymd(hoje);
-  const dados: Dados = { cfg, dias, hoje, tarifa, tarifas: cfg.tarifas, desde: cfg.since || primeiro, base: parseNum(cfg.base), primeiro };
+  const dados: Dados = { cfg, dias, hoje, tarifa, tarifas: cfg.tarifas, desde: cfg.since || primeiro, base: parseNum(cfg.base), primeiro, contas };
 
   // guarda a tarifa de cada mês: mudar o valor não reescreve o custo dos meses passados
   useEffect(() => {
@@ -226,7 +228,18 @@ export default function App() {
 
   // ---- dados / diagnóstico ----
   const exportar = () => {
-    const linhas = ['data;kwh;reais', ...dias.map((x) => `${x.data};${nf(x.kwh, 3)};${nf(x.kwh * tarifaDoMes(cfg.tarifas, tarifa, x.data.slice(0, 7)), 2)}`)].join('\n');
+    const blocoContas = Object.values(contas)
+      .sort((a, b) => a.mes.localeCompare(b.mes))
+      .map((c) => {
+        const a = contaAtual(c, dias);
+        const f = fatiaDaConta(a);
+        return `${a.mes};${nf(a.valor, 2)};${nf(a.kwh, 1)};${nf(a.fixas, 2)};${nf(a.kwhAr, 2)};${f.share != null ? nf(f.share * 100, 1) : ''};${f.estimada ? 'estimada' : 'completa'}`;
+      });
+    const linhas = [
+      'data;kwh;reais',
+      ...dias.map((x) => `${x.data};${nf(x.kwh, 3)};${nf(x.kwh * tarifaDoMes(cfg.tarifas, tarifa, x.data.slice(0, 7)), 2)}`),
+      ...(blocoContas.length ? ['', 'mes;valor_conta;kwh_conta;taxas_fixas;kwh_ar;fatia_ar_pct;cobertura', ...blocoContas] : []),
+    ].join('\n');
     try {
       const a = document.createElement('a');
       a.href = URL.createObjectURL(new Blob([linhas], { type: 'text/csv' }));
@@ -271,7 +284,7 @@ export default function App() {
 
   const ligadoHa = ligado && ligadoDesde ? agora - ligadoDesde : null;
   const trocarAba = (a: Aba) => { setAba(a); window.scrollTo(0, 0); };
-  const itens: [Aba, string, typeof House][] = [['home', 'Início', House], ['hist', 'Histórico', ChartColumn], ['set', 'Ajustes', SlidersHorizontal]];
+  const itens: [Aba, string, typeof House][] = [['home', 'Início', House], ['hist', 'Histórico', ChartColumn], ['contas', 'Contas', Receipt], ['set', 'Ajustes', SlidersHorizontal]];
 
   return (
     <>
@@ -304,14 +317,13 @@ export default function App() {
           />
         )}
         {aba === 'hist' && <Historico d={dados} />}
+        {aba === 'contas' && <Contas cfg={cfg} setCfg={setCfg} dias={dias} hoje={hoje} contas={contas} setContas={setContas} />}
         {aba === 'set' && (
           <Ajustes
             cfg={cfg}
             setCfg={setCfg}
             tarifa={tarifa}
             desde={dados.desde}
-            dias={dias}
-            hoje={hoje}
             nomeLg={aparelho?.name ?? ''}
             nDias={dias.length}
             pinConfigurado={pin.configurado}
@@ -319,12 +331,13 @@ export default function App() {
             onExport={exportar}
             onApagar={() => setFolha('apagar')}
             onDiag={() => setFolha('diag')}
+            onIrContas={() => trocarAba('contas')}
           />
         )}
       </main>
 
       <nav aria-label="Navegação" style={{ position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 20, background: 'var(--surface)', borderTop: '1px solid var(--line)' }}>
-        <div style={{ maxWidth: 480, margin: '0 auto', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', padding: '8px 0 calc(10px + env(safe-area-inset-bottom))' }}>
+        <div style={{ maxWidth: 480, margin: '0 auto', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', padding: '8px 0 calc(10px + env(safe-area-inset-bottom))' }}>
           {itens.map(([k, rotulo, Icone]) => (
             <button key={k} onClick={() => trocarAba(k)} aria-current={aba === k ? 'page' : undefined} style={{ display: 'grid', justifyItems: 'center', gap: 4, minHeight: 56, color: aba === k ? 'var(--ink)' : 'var(--muted)' }}>
               <span style={{ width: 58, height: 30, borderRadius: 15, display: 'flex', alignItems: 'center', justifyContent: 'center', background: aba === k ? 'var(--accent-soft)' : 'transparent' }}><Icone size={22} /></span>

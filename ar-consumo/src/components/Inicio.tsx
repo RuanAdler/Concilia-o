@@ -8,7 +8,7 @@ import type { ReactNode } from 'react';
 import { MODES, type Device, type Mode } from '@/lib/device';
 import { MONTHS, MON, WD, brl, brl0, cap, dl, hhmm, nf, parseNum, parseYmd } from '@/lib/fmt';
 import { useMontado } from '@/lib/cliente';
-import { calcularConta, custoDe, delta, diasNoMes, mediaAnterior, periodos, projecaoMes, soma, tarifaDoMes } from '@/lib/stats';
+import { calcularConta, contaAtual, fatiaDaConta, custoDe, delta, diasNoMes, mediaAnterior, periodos, projecaoMes, soma, tarifaDoMes } from '@/lib/stats';
 import { Barras, LinhaMedia, Spinner, card, rotulo } from './ui';
 import type { Cmd, Dados } from './tipos';
 
@@ -113,14 +113,20 @@ export default function Inicio(p: Props) {
       ? { bg: 'var(--amber-soft)', fg: 'var(--amber)', t: `Você já usou ${nf(pct * 100, 0)}% da meta`, s: `Restam ${f(meta - gasto)} para ${restam} dias` }
       : null;
 
-  // fatia do ar na conta de luz
-  const mesConta = cfg.conta.mes || `${new Date(hoje.getFullYear(), hoje.getMonth() - 1, 1).getFullYear()}-${String(((hoje.getMonth() + 11) % 12) + 1).padStart(2, '0')}`;
-  const conta = cfg.conta.valor && cfg.conta.kwh
-    ? calcularConta({ valor: parseNum(cfg.conta.valor), kwh: parseNum(cfg.conta.kwh), fixas: parseNum(cfg.conta.fixas), mes: mesConta }, dias, hoje)
+  // fatia do ar na conta de luz: a conta salva mais recente (ou, se não houver, o que está digitado)
+  const salvaRecente = Object.values(d.contas).sort((a, b) => b.mes.localeCompare(a.mes))[0];
+  const fSalva = salvaRecente ? fatiaDaConta(contaAtual(salvaRecente, dias)) : null;
+  const mesPrev = `${new Date(hoje.getFullYear(), hoje.getMonth() - 1, 1).getFullYear()}-${String(((hoje.getMonth() + 11) % 12) + 1).padStart(2, '0')}`;
+  const rascunho = !salvaRecente && cfg.conta.valor && cfg.conta.kwh
+    ? calcularConta({ valor: parseNum(cfg.conta.valor), kwh: parseNum(cfg.conta.kwh), fixas: parseNum(cfg.conta.fixas), mes: cfg.conta.mes || mesPrev }, dias, hoje)
     : null;
-  const contaMes = MONTHS[Number(mesConta.slice(5, 7)) - 1];
-  const fatia = conta && (conta.cobertura >= 0.95 ? conta.share : conta.shareMesCheio);
-  const fatiaReais = conta && (conta.cobertura >= 0.95 ? conta.custoAr : conta.custoMesCheio);
+  const contaMes = MONTHS[Number((salvaRecente?.mes ?? (cfg.conta.mes || mesPrev)).slice(5, 7)) - 1];
+  const fatia = fSalva ? fSalva.share : rascunho ? (rascunho.cobertura >= 0.95 ? rascunho.share : rascunho.shareMesCheio) : null;
+  const fatiaReais = fSalva ? fSalva.custoAr : rascunho ? (rascunho.cobertura >= 0.95 ? rascunho.custoAr : rascunho.custoMesCheio) : null;
+  const fatiaEstimada = fSalva ? fSalva.estimada : rascunho ? rascunho.cobertura < 0.95 : false;
+  const conta = fSalva ?? rascunho;
+  const kwhContaTxt = salvaRecente ? nf(salvaRecente.kwh, 0) : nf(parseNum(cfg.conta.kwh), 0);
+  const kwhArTxt = fSalva ? nf(contaAtual(salvaRecente, dias).kwhAr, 0) : rascunho ? nf(rascunho.kwhAr, 0) : '';
 
   // mês × mês passado
   const mx = Math.max(kMes, kMesAnt) || 1;
@@ -360,7 +366,7 @@ export default function Inicio(p: Props) {
                 <div style={{ height: '100%', borderRadius: 6, background: 'var(--accent)', width: `${montado ? Math.min(100, fatia * 100) : 0}%`, transition: 'width 1s cubic-bezier(.2,.8,.2,1)' }} />
               </div>
               <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--muted)', lineHeight: 1.4 }}>
-                {conta.cobertura >= 0.95 ? `${nf(conta.kwhAr, 0)} kWh do ar de ${nf(parseNum(cfg.conta.kwh), 0)} kWh da conta.` : `Estimativa: o app tem ${conta.diasComDado} de ${conta.diasDoMes} dias de ${contaMes}.`}
+                {fatiaEstimada ? 'Estimativa: o app não tinha o mês inteiro.' : `${kwhArTxt} kWh do ar de ${kwhContaTxt} kWh da conta.`}
               </div>
             </section>
           )}
