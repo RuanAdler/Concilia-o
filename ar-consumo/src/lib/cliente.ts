@@ -17,6 +17,7 @@ export type Config = {
   alert100: boolean;
   theme: 'auto' | 'claro' | 'escuro';
   nome: string;
+  diaLeitura: string;
   conta: Conta;
   tarifas: Tarifas;
   tarifaDefinida: boolean;
@@ -36,6 +37,7 @@ export const CONFIG_PADRAO: Config = {
   alert100: true,
   theme: 'auto',
   nome: '',
+  diaLeitura: '16',
   conta: { valor: '', kwh: '', fixas: '0', mes: '', inicio: '', fim: '' },
   tarifas: {},
   tarifaDefinida: false,

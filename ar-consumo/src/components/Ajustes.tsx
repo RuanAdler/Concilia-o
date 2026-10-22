@@ -46,6 +46,17 @@ export default function Ajustes({ cfg, setCfg, tarifa, desde, nomeLg, nDias, pin
         <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--muted)', lineHeight: 1.4 }}>Na aba Contas você digita a conta de um mês e o app calcula a tarifa, a meta e o acumulado sozinho.</span>
       </button>
 
+      <Secao titulo="Ciclo da conta">
+        <Linha ultimo>
+          <label style={{ fontSize: 13, fontWeight: 700, color: 'var(--muted)' }}>Dia da leitura da conta
+            <input className="input" inputMode="numeric" value={cfg.diaLeitura} onChange={(e) => set('diaLeitura', e.target.value.replace(/\D/g, '').slice(0, 2))} />
+          </label>
+          <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--muted)', lineHeight: 1.4 }}>
+            A distribuidora lê o medidor todo mês nesse dia (de 1 a 28). A meta, a projeção, o &quot;ciclo atual&quot; e o acumulado seguem de uma leitura à outra, como a conta.
+          </div>
+        </Linha>
+      </Secao>
+
       <Secao titulo="Tarifa">
         <Linha ultimo>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -74,7 +85,7 @@ export default function Ajustes({ cfg, setCfg, tarifa, desde, nomeLg, nDias, pin
         </Linha>
       </Secao>
 
-      <Secao titulo="Meta mensal">
+      <Secao titulo="Meta por ciclo">
         <Linha>
           <Seg opts={[['R$', 'R$'], ['kWh', 'kWh']]} cur={cfg.goalType} onSel={(k) => set('goalType', k)} />
         </Linha>
