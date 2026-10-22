@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   agruparCiclos, calcularConta, cicloAnterior, cicloDe, cicloPorRef, contaAtual, custoDe, delta, diasEntre, faixasSemana,
-  fatiaDaConta, mediaAnterior, mediaPorDiaSemana, periodosCiclo, previsaoCiclo, projecaoCiclo, tarifaDoMes,
+  fatiaDaConta, mediaAnterior, mediaPorDiaSemana, periodosCiclo, previsaoCiclo, projecaoCiclo, refsDeCiclos, tarifaDoMes,
 } from '../src/lib/stats';
 import { parseNum } from '../src/lib/fmt';
 import { CONTAS_INICIAIS, TARIFAS_INICIAIS } from '../src/lib/contas-iniciais';
@@ -265,5 +265,13 @@ describe('conta incompleta', () => {
     expect(f.incompleta).toBe(true);
     expect(f.share).toBeNull();
     expect(f.tarifa).toBe(0);
+  });
+});
+
+describe('ciclos conhecidos', () => {
+  it('une as contas, os dias guardados e o ciclo atual, sem repetir', () => {
+    const ds = [dia('2026-09-22', 5), dia('2026-10-20', 5)];
+    expect(refsDeCiclos(['2026-08', '2026-09', '2026-10'], ds, new Date(2026, 9, 22), 16)).toEqual(['2026-08', '2026-09', '2026-10', '2026-11']);
+    expect(refsDeCiclos([], [], new Date(2026, 9, 22), 16)).toEqual(['2026-11']);
   });
 });

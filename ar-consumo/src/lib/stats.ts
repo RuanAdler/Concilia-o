@@ -242,3 +242,11 @@ export function previsaoCiclo(noCiclo: Dia[], hojeStr: string, totalDias: number
   if (fechados.length < minDias) return null;
   return Math.max((soma(fechados) / fechados.length) * totalDias, soma(noCiclo));
 }
+
+/** Meses de referência de todos os ciclos que o app conhece: contas, dias guardados e o ciclo atual. */
+export function refsDeCiclos(refsContas: string[], dias: Dia[], hoje: Date, dia: number): string[] {
+  const set = new Set(refsContas);
+  for (const d of dias) set.add(cicloDe(parseYmd(d.data), dia).ref);
+  set.add(cicloDe(hoje, dia).ref);
+  return [...set].sort();
+}

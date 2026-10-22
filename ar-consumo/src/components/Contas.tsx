@@ -6,6 +6,7 @@ import type { Config } from '@/lib/cliente';
 import { CONTAS_INICIAIS } from '@/lib/contas-iniciais';
 import { MONTHS, brl, brl0, cap, dl, nf, parseNum, parseYmd, ymd } from '@/lib/fmt';
 import { cicloAnterior, cicloDe, cicloPorRef, contaAtual, diasDoPeriodo, diasEntre, fatiaDaConta, soma, type ContaSalva, type Dia } from '@/lib/stats';
+import { analisarConta, type AnaliseConta, type TipoConta } from '@/lib/conta-analise';
 import { Ajuda, Selo } from './selos';
 import { Folha } from './Sheets';
 import { Switch, card, rotulo } from './ui';
@@ -22,27 +23,15 @@ type Props = {
   setContas: (f: (c: Record<string, ContaSalva>) => Record<string, ContaSalva>) => void;
 };
 
-type Tipo = 'lg' | 'estimativa' | 'diferenca' | 'antes' | 'incompleta' | 'semdados';
-
 const MON3 = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 const nomeRef = (ym: string) => `${ym.slice(5)}/${ym.slice(0, 4)}`;
 const mesNome = (ym: string) => cap(MONTHS[Number(ym.slice(5, 7)) - 1]);
 const venceEm = (fim: string) => MONTHS[Number(fim.slice(5, 7)) % 12];
 const numTxt = (n: number) => (n ? String(n).replace('.', ',') : '');
 
-/** Tudo o que as telas mostram sobre uma conta: período, fatia do ar e como ela foi calculada. */
-function analisar(c: ContaSalva, dias: Dia[], semArDia: number) {
-  const a = contaAtual(c, dias);
-  const f = fatiaDaConta(a, semArDia);
-  const inicio = a.inicio ?? cicloPorRef(a.mes, 16).inicio;
-  const fim = a.fim ?? cicloPorRef(a.mes, 16).fim;
-  const nDias = diasEntre(inicio, fim);
-  const tipo: Tipo = f.antesDoAr ? 'antes' : f.incompleta ? 'incompleta' : f.share == null ? 'semdados' : f.porDiferenca ? 'diferenca' : f.estimada ? 'estimativa' : 'lg';
-  const arR = f.custoAr;
-  const resto = arR != null ? Math.max(0, a.valor - a.fixas - arR) : null;
-  return { c: a, f, inicio, fim, nDias, tipo, arR, resto };
-}
-type Analise = ReturnType<typeof analisar>;
+type Analise = AnaliseConta;
+const analisar = analisarConta;
+type Tipo = TipoConta;
 
 function Empilhada({ a, altura = 20, legenda = false }: { a: Analise; altura?: number; legenda?: boolean }) {
   const total = a.c.valor || 1;
