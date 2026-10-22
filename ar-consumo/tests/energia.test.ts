@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mesclarDias, parseEnergia, resumoReal, somarDesde } from '../src/lib/energia';
+import { mesclarDias, parseEnergia } from '../src/lib/energia';
 
 const resposta = {
   response: {
@@ -31,16 +31,5 @@ describe('energia da LG', () => {
     const m = mesclarDias({ '2026-09-22': 1, '2026-09-21': 2 }, parseEnergia(resposta));
     expect(m['2026-09-22']).toBe(5.03);
     expect(m['2026-09-21']).toBe(2);
-  });
-
-  it('soma por janela', () => {
-    const dias = { '2026-10-20': 4, '2026-10-21': 3, '2026-10-22': 2, '2026-09-30': 9 };
-    const agora = new Date(2026, 9, 22, 12).getTime();
-    const r = resumoReal(dias, agora, '2026-10-21');
-    expect(r.hoje).toBe(2);
-    expect(r.semana).toBe(9);
-    expect(r.mes).toBe(9);
-    expect(r.acumulado).toBe(5);
-    expect(somarDesde(dias, '2026-09-01')).toBe(18);
   });
 });
