@@ -42,6 +42,8 @@ export default function Contas({ cfg, setCfg, dias, hoje, contas, setContas }: P
     }
     const salva: ContaSalva = { mes: mesConta, valor: numeros.valor, kwh: numeros.kwh, fixas: numeros.fixas, kwhAr: r.kwhAr, diasComDado: r.diasComDado, diasDoMes: r.diasDoMes, salvoEm: Date.now() };
     setContas((c) => ({ ...c, [mesConta]: salva }));
+    // a tarifa daquele mês também fica guardada, para o custo dele no Histórico; o mês atual segue a tarifa dos Ajustes
+    if (!preencher && mesConta !== ymd(hoje).slice(0, 7)) setCfg((c) => ({ ...c, tarifas: { ...c.tarifas, [mesConta]: r.tarifa } }));
 
     let texto = `Conta de ${MONTHS[Number(mesConta.slice(5, 7)) - 1]} ${jaSalva ? 'atualizada' : 'salva'}.`;
     if (preencher) {
@@ -120,7 +122,7 @@ export default function Contas({ cfg, setCfg, dias, hoje, contas, setContas }: P
           Salvar e preencher os ajustes
         </button>
         <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.4 }}>
-          &quot;Preencher os ajustes&quot; também calcula a tarifa, a meta mensal e o início do acumulado a partir desta conta.
+          Salvar guarda a conta e a tarifa daquele mês, sem mexer nos ajustes. &quot;Preencher os ajustes&quot; também calcula a tarifa atual, a meta mensal e o início do acumulado a partir desta conta.
         </div>
         {aviso && <div style={{ fontSize: 13, fontWeight: 700, color: aviso.erro ? 'var(--red)' : 'var(--green)', lineHeight: 1.4 }}>{aviso.texto}</div>}
       </section>
