@@ -92,7 +92,13 @@ export function agruparMeses(ds: Dia[]) {
     .map(([ym, dias]) => ({ ym, ano: Number(ym.slice(0, 4)), mes: Number(ym.slice(5)) - 1, dias, k: soma(dias), n: dias.length }));
 }
 
-export type ContaNumeros = { valor: number; kwh: number; fixas: number; mes: string };
+export type ContaNumeros = { valor: number; kwh: number; fixas: number; mes: string; inicio?: string; fim?: string };
+
+/** Dias com dado entre `inicio` (inclusive) e `fim` (exclusive), como nas datas de leitura da conta. */
+export const diasDoPeriodo = (ds: Dia[], inicio: string, fim: string) => ds.filter((d) => d.data >= inicio && d.data < fim);
+
+export const diasEntre = (inicio: string, fim: string) =>
+  Math.round((parseYmd(fim).getTime() - parseYmd(inicio).getTime()) / 86_400_000);
 
 /**
  * A partir da conta de luz (valor, kWh e taxas fixas de um mês AAAA-MM) calcula a tarifa
@@ -100,15 +106,20 @@ export type ContaNumeros = { valor: number; kwh: number; fixas: number; mes: str
  */
 export function calcularConta(c: ContaNumeros, dias: Dia[], hoje: Date) {
   if (!(c.kwh > 0) || !(c.valor - c.fixas > 0) || !/^\d{4}-\d{2}$/.test(c.mes)) return null;
+  const periodo = c.inicio && c.fim ? { inicio: c.inicio, fim: c.fim } : null;
+  if (periodo && !(periodo.fim > periodo.inicio)) return null;
   const tarifa = (c.valor - c.fixas) / c.kwh;
   const ano = Number(c.mes.slice(0, 4));
   const mes0 = Number(c.mes.slice(5)) - 1;
-  const dm = doMes(dias, ano, mes0);
-  const diasDoMes = diasNoMes(ano, mes0);
+  const dm = periodo ? diasDoPeriodo(dias, periodo.inicio, periodo.fim) : doMes(dias, ano, mes0);
+  const diasDoMes = periodo ? diasEntre(periodo.inicio, periodo.fim) : diasNoMes(ano, mes0);
   const cobertura = dm.length / diasDoMes;
   const kwhAr = soma(dm);
-  const mesCheio = cobertura >= 0.3 ? kwhAr / cobertura : null; // estimativa do mês inteiro
+  const mesCheio = cobertura >= 0.3 ? kwhAr / cobertura : null; // estimativa do período inteiro
   const seguinte = new Date(ano, mes0 + 1, 1);
+  const desde = periodo
+    ? parseYmd(periodo.fim) > hoje ? periodo.inicio : periodo.fim
+    : ymd(seguinte > hoje ? new Date(ano, mes0, 1) : seguinte);
   return {
     tarifa,
     kwhAr,
@@ -119,7 +130,7 @@ export function calcularConta(c: ContaNumeros, dias: Dia[], hoje: Date) {
     cobertura,
     shareMesCheio: mesCheio != null ? mesCheio / c.kwh : null,
     custoMesCheio: mesCheio != null ? mesCheio * tarifa : null,
-    desde: ymd(seguinte > hoje ? new Date(ano, mes0, 1) : seguinte),
+    desde,
   };
 }
 
@@ -132,6 +143,8 @@ export type ContaSalva = {
   kwhAr: number;
   diasComDado: number;
   diasDoMes: number;
+  inicio?: string; // datas de leitura da conta (início inclusive, fim exclusive); sem elas vale o mês
+  fim?: string;
   salvoEm: number;
 };
 
@@ -152,6 +165,6 @@ export function fatiaDaConta(c: Pick<ContaSalva, 'valor' | 'kwh' | 'fixas' | 'kw
 
 /** Usa os dias que o app tem hoje daquele mês, a menos que o registro salvo tenha mais dias. */
 export function contaAtual(c: ContaSalva, dias: Dia[]): ContaSalva {
-  const dm = doMes(dias, Number(c.mes.slice(0, 4)), Number(c.mes.slice(5)) - 1);
+  const dm = c.inicio && c.fim ? diasDoPeriodo(dias, c.inicio, c.fim) : doMes(dias, Number(c.mes.slice(0, 4)), Number(c.mes.slice(5)) - 1);
   return dm.length >= c.diasComDado ? { ...c, kwhAr: soma(dm), diasComDado: dm.length } : c;
 }

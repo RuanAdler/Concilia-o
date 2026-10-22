@@ -4,7 +4,7 @@ import { Pencil, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import type { Config } from '@/lib/cliente';
 import { MON, MONTHS, brl, brl0, cap, dl, nf, parseNum, parseYmd, ymd } from '@/lib/fmt';
-import { calcularConta, contaAtual, fatiaDaConta, type ContaSalva, type Dia } from '@/lib/stats';
+import { calcularConta, contaAtual, diasEntre, fatiaDaConta, type ContaSalva, type Dia } from '@/lib/stats';
 import { card, rotulo } from './ui';
 
 type Props = {
@@ -24,23 +24,26 @@ export default function Contas({ cfg, setCfg, dias, hoje, contas, setContas }: P
   const [aviso, setAviso] = useState<{ texto: string; erro: boolean } | null>(null);
   const [apagando, setApagando] = useState<string | null>(null);
 
-  const setConta = (k: 'valor' | 'kwh' | 'fixas' | 'mes', v: string) => {
+  const setConta = (k: 'valor' | 'kwh' | 'fixas' | 'mes' | 'inicio' | 'fim', v: string) => {
     setAviso(null);
     setCfg((c) => ({ ...c, conta: { ...c.conta, [k]: v } }));
   };
 
   const mesPadrao = ymd(new Date(hoje.getFullYear(), hoje.getMonth() - 1, 1)).slice(0, 7);
   const mesConta = cfg.conta.mes || mesPadrao;
-  const numeros = { valor: parseNum(cfg.conta.valor), kwh: parseNum(cfg.conta.kwh), fixas: parseNum(cfg.conta.fixas), mes: mesConta };
+  const temPeriodo = Boolean(cfg.conta.inicio && cfg.conta.fim);
+  const periodoInvalido = temPeriodo && cfg.conta.fim <= cfg.conta.inicio;
+  const numeros = { valor: parseNum(cfg.conta.valor), kwh: parseNum(cfg.conta.kwh), fixas: parseNum(cfg.conta.fixas), mes: mesConta, ...(temPeriodo ? { inicio: cfg.conta.inicio, fim: cfg.conta.fim } : {}) };
+  const rotuloPeriodo = temPeriodo && !periodoInvalido ? `${dl(parseYmd(cfg.conta.inicio))} a ${dl(parseYmd(cfg.conta.fim))}` : null;
   const r = calcularConta(numeros, dias, hoje);
   const jaSalva = Boolean(contas[mesConta]);
 
   const salvar = (preencher: boolean) => {
     if (!r) {
-      setAviso({ erro: true, texto: 'Preencha o valor total e os kWh da conta (o valor tem que ser maior que as taxas fixas).' });
+      setAviso({ erro: true, texto: periodoInvalido ? 'A leitura atual precisa ser depois da leitura anterior.' : 'Preencha o valor total e os kWh da conta (o valor tem que ser maior que as taxas fixas).' });
       return;
     }
-    const salva: ContaSalva = { mes: mesConta, valor: numeros.valor, kwh: numeros.kwh, fixas: numeros.fixas, kwhAr: r.kwhAr, diasComDado: r.diasComDado, diasDoMes: r.diasDoMes, salvoEm: Date.now() };
+    const salva: ContaSalva = { mes: mesConta, valor: numeros.valor, kwh: numeros.kwh, fixas: numeros.fixas, kwhAr: r.kwhAr, diasComDado: r.diasComDado, diasDoMes: r.diasDoMes, ...(temPeriodo ? { inicio: cfg.conta.inicio, fim: cfg.conta.fim } : {}), salvoEm: Date.now() };
     setContas((c) => ({ ...c, [mesConta]: salva }));
     // a tarifa daquele mês também fica guardada, para o custo dele no Histórico; o mês atual segue a tarifa dos Ajustes
     if (!preencher && mesConta !== ymd(hoje).slice(0, 7)) setCfg((c) => ({ ...c, tarifas: { ...c.tarifas, [mesConta]: r.tarifa } }));
@@ -78,7 +81,7 @@ export default function Contas({ cfg, setCfg, dias, hoje, contas, setContas }: P
 
   const editar = (c: ContaSalva) => {
     setAviso(null);
-    setCfg((cf) => ({ ...cf, conta: { valor: numTxt(c.valor), kwh: numTxt(c.kwh), fixas: numTxt(c.fixas), mes: c.mes } }));
+    setCfg((cf) => ({ ...cf, conta: { valor: numTxt(c.valor), kwh: numTxt(c.kwh), fixas: numTxt(c.fixas), mes: c.mes, inicio: c.inicio ?? '', fim: c.fim ?? '' } }));
     window.scrollTo(0, 0);
   };
 
@@ -93,6 +96,21 @@ export default function Contas({ cfg, setCfg, dias, hoje, contas, setContas }: P
         <label style={rot}>Mês da conta
           <input className="input" type="month" value={mesConta} onChange={(e) => e.target.value && setConta('mes', e.target.value)} />
         </label>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+          <label style={rot}>Leitura anterior
+            <input className="input" type="date" value={cfg.conta.inicio} onChange={(e) => setConta('inicio', e.target.value)} />
+          </label>
+          <label style={rot}>Leitura atual
+            <input className="input" type="date" value={cfg.conta.fim} onChange={(e) => setConta('fim', e.target.value)} />
+          </label>
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.4, marginTop: -6 }}>
+          {periodoInvalido
+            ? 'A leitura atual precisa ser depois da anterior.'
+            : temPeriodo
+              ? `Contando o ar em ${diasEntre(cfg.conta.inicio, cfg.conta.fim)} dias, de ${rotuloPeriodo}. É o que está em "Datas de leituras" na conta.`
+              : 'Opcional: as datas de leitura que estão na conta deixam o cálculo do ar exato. Sem elas, o app usa o mês inteiro.'}
+        </div>
         <label style={rot}>Valor total da conta (R$)
           <input className="input" inputMode="decimal" placeholder="ex.: 480,00" value={cfg.conta.valor} onChange={(e) => setConta('valor', e.target.value)} />
         </label>
@@ -108,9 +126,9 @@ export default function Contas({ cfg, setCfg, dias, hoje, contas, setContas }: P
             {r.cobertura >= 0.95 ? (
               <>O ar foi <b>{nf(r.share * 100, 0)}%</b> da conta de {MONTHS[Number(mesConta.slice(5, 7)) - 1]}, cerca de <b>{brl(r.custoAr)}</b> ({nf(r.kwhAr, 0)} kWh).</>
             ) : r.shareMesCheio != null && r.custoMesCheio != null ? (
-              <>Tenho {r.diasComDado} de {r.diasDoMes} dias desse mês. Estimando o mês inteiro, o ar deve ter sido cerca de <b>{nf(r.shareMesCheio * 100, 0)}%</b> da conta, <b>{brl(r.custoMesCheio)}</b>.</>
+              <>Tenho {r.diasComDado} de {r.diasDoMes} dias {temPeriodo ? 'desse período' : 'desse mês'}. Estimando o período inteiro, o ar deve ter sido cerca de <b>{nf(r.shareMesCheio * 100, 0)}%</b> da conta, <b>{brl(r.custoMesCheio)}</b>.</>
             ) : (
-              <>Tenho só {r.diasComDado} de {r.diasDoMes} dias desse mês, pouco para dizer quanto da conta foi do ar. Você ainda pode salvar a conta.</>
+              <>Tenho só {r.diasComDado} de {r.diasDoMes} dias {temPeriodo ? 'desse período' : 'desse mês'}, pouco para dizer quanto da conta foi do ar. Você ainda pode salvar a conta.</>
             )}
           </div>
         )}
@@ -178,7 +196,7 @@ export default function Contas({ cfg, setCfg, dias, hoje, contas, setContas }: P
                   )}
                 </div>
                 <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--muted)', lineHeight: 1.45 }}>
-                  Conta {brl(c.valor)} · {nf(c.kwh, 0)} kWh · tarifa {brl(f.tarifa)}/kWh
+                  {c.inicio && c.fim ? `Leitura ${dl(parseYmd(c.inicio))} a ${dl(parseYmd(c.fim))} · ` : ''}Conta {brl(c.valor)} · {nf(c.kwh, 0)} kWh · tarifa {brl(f.tarifa)}/kWh
                   {dp != null && <> · <b style={{ color: dp > 0 ? 'var(--amber)' : 'var(--green)' }}>{dp > 0 ? '+' : '−'}{nf(Math.abs(dp), 1)} pontos</b> na fatia do ar</>}
                 </div>
               </section>
