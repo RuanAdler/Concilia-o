@@ -10,6 +10,7 @@ export type Dados = {
   hoje: Date;
   tarifa: number;
   diaLeitura: number;
+  semArDia: number;
   tarifas: Tarifas;
   desde: string;
   base: number;

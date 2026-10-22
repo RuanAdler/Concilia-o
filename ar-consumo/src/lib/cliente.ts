@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { CASA_SEM_AR_PADRAO } from './contas-iniciais';
 import type { Tarifas } from './stats';
 
 export type Conta = { valor: string; kwh: string; fixas: string; mes: string; inicio: string; fim: string };
@@ -18,6 +19,7 @@ export type Config = {
   theme: 'auto' | 'claro' | 'escuro';
   nome: string;
   diaLeitura: string;
+  semAr: string;
   conta: Conta;
   tarifas: Tarifas;
   tarifaDefinida: boolean;
@@ -25,7 +27,7 @@ export type Config = {
 
 export const CONFIG_PADRAO: Config = {
   tariffMode: 'direto',
-  tariff: '0,95',
+  tariff: '1,1944',
   billValue: '',
   billKwh: '',
   base: '0',
@@ -38,9 +40,10 @@ export const CONFIG_PADRAO: Config = {
   theme: 'auto',
   nome: '',
   diaLeitura: '16',
+  semAr: CASA_SEM_AR_PADRAO,
   conta: { valor: '', kwh: '', fixas: '0', mes: '', inicio: '', fim: '' },
   tarifas: {},
-  tarifaDefinida: false,
+  tarifaDefinida: true,
 };
 
 /** useState persistido no localStorage (seguro para SSR e para navegação privada). */

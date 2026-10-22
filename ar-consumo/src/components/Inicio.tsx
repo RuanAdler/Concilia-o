@@ -115,7 +115,7 @@ export default function Inicio(p: Props) {
 
   // fatia do ar na conta de luz: a conta salva mais recente (ou, se não houver, o que está digitado)
   const salvaRecente = Object.values(d.contas).sort((a, b) => b.mes.localeCompare(a.mes))[0];
-  const fSalva = salvaRecente ? fatiaDaConta(contaAtual(salvaRecente, dias)) : null;
+  const fSalva = salvaRecente ? fatiaDaConta(contaAtual(salvaRecente, dias), d.semArDia) : null;
   const mesPrev = `${new Date(hoje.getFullYear(), hoje.getMonth() - 1, 1).getFullYear()}-${String(((hoje.getMonth() + 11) % 12) + 1).padStart(2, '0')}`;
   const rascunho = !salvaRecente && cfg.conta.valor && cfg.conta.kwh
     ? calcularConta({ valor: parseNum(cfg.conta.valor), kwh: parseNum(cfg.conta.kwh), fixas: parseNum(cfg.conta.fixas), mes: cfg.conta.mes || mesPrev, ...(cfg.conta.inicio && cfg.conta.fim ? { inicio: cfg.conta.inicio, fim: cfg.conta.fim } : {}) }, dias, hoje)
@@ -124,6 +124,7 @@ export default function Inicio(p: Props) {
   const fatia = fSalva ? fSalva.share : rascunho ? (rascunho.cobertura >= 0.95 ? rascunho.share : rascunho.shareMesCheio) : null;
   const fatiaReais = fSalva ? fSalva.custoAr : rascunho ? (rascunho.cobertura >= 0.95 ? rascunho.custoAr : rascunho.custoMesCheio) : null;
   const fatiaEstimada = fSalva ? fSalva.estimada : rascunho ? rascunho.cobertura < 0.95 : false;
+  const fatiaPorDif = Boolean(fSalva?.porDiferenca);
   const conta = fSalva ?? rascunho;
   const kwhContaTxt = salvaRecente ? nf(salvaRecente.kwh, 0) : nf(parseNum(cfg.conta.kwh), 0);
   const kwhArTxt = fSalva ? nf(contaAtual(salvaRecente, dias).kwhAr, 0) : rascunho ? nf(rascunho.kwhAr, 0) : '';
@@ -366,7 +367,7 @@ export default function Inicio(p: Props) {
                 <div style={{ height: '100%', borderRadius: 6, background: 'var(--accent)', width: `${montado ? Math.min(100, fatia * 100) : 0}%`, transition: 'width 1s cubic-bezier(.2,.8,.2,1)' }} />
               </div>
               <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--muted)', lineHeight: 1.4 }}>
-                {fatiaEstimada ? 'Estimativa: o app não tinha o mês inteiro.' : `${kwhArTxt} kWh do ar de ${kwhContaTxt} kWh da conta.`}
+                {fatiaPorDif ? 'Estimado pela diferença com a casa sem o ar.' : fatiaEstimada ? 'Estimativa: o app não tinha o ciclo inteiro.' : `${kwhArTxt} kWh do ar de ${kwhContaTxt} kWh da conta.`}
               </div>
             </section>
           )}
