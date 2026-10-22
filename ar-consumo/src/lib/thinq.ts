@@ -92,6 +92,16 @@ export async function lerUso(): Promise<DiaEnergia[]> {
   if (typeof propriedade !== 'string') throw new ThinqError('Perfil de energia sem propriedade reconhecida');
   const hoje = new Date();
   const ini = new Date(hoje.getTime() - 30 * 86_400_000);
-  const q = new URLSearchParams({ property: propriedade, period: 'DAILY', startDate: ymd(ini), endDate: ymd(hoje) });
-  return parseEnergia(await chamar(`/devices/energy/${encodeURIComponent(id)}/usage?${q}`));
+  // O formato de data aceito não está documentado: tenta AAAA-MM-DD e depois AAAAMMDD.
+  let ultimo: unknown;
+  for (const compacto of [false, true]) {
+    const f = (d: Date) => (compacto ? ymd(d).replace(/-/g, '') : ymd(d));
+    const q = new URLSearchParams({ property: propriedade, period: 'DAILY', startDate: f(ini), endDate: f(hoje) });
+    try {
+      return parseEnergia(await chamar(`/devices/energy/${encodeURIComponent(id)}/usage?${q}`));
+    } catch (e) {
+      ultimo = e;
+    }
+  }
+  throw ultimo;
 }

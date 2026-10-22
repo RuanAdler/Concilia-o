@@ -39,6 +39,7 @@ export default function App() {
   const [cmd, setCmd] = useState<Cmd>(null);
   const [draft, setDraft] = useState<number | null>(null);
   const [desligaEmH, setDesligaEmH] = useState<number | null>(null);
+  const [erroUso, setErroUso] = useState<string | null>(null);
   const [selDia, setSelDia] = useState<number | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [folha, setFolha] = useState<null | 'diag' | 'apagar'>(null);
@@ -103,9 +104,12 @@ export default function App() {
     try {
       const r = await fetch('/api/lg/usage', { cache: 'no-store' });
       const j = await json(r);
-      if (r.ok) setMapa((m) => mesclarDias(m, j.dias as DiaEnergia[]));
-    } catch {
-      // sem rede: segue com o histórico guardado
+      if (!r.ok) throw new Error(String(j.erro ?? `Erro ${r.status}`));
+      setMapa((m) => mesclarDias(m, j.dias as DiaEnergia[]));
+      setErroUso(null);
+    } catch (e) {
+      // segue com o histórico guardado e avisa na tela
+      setErroUso(e instanceof Error ? e.message : 'Sem rede');
     }
   }, [setMapa]);
 
@@ -283,6 +287,8 @@ export default function App() {
             unlocked={pin.liberado}
             dicaOculta={ui.dica}
             avisoOculto={ui.aviso}
+            erroUso={erroUso}
+            onRetryUso={lerUso}
             selDia={selDia}
             onSelDia={setSelDia}
             onLock={aoCadeado}
