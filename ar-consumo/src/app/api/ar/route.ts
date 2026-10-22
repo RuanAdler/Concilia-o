@@ -44,12 +44,23 @@ export async function GET(req: Request) {
     const texto = (e: unknown) => (e instanceof ThinqError ? `${e.message}: ${JSON.stringify(e.corpo)}` : String(e));
     try {
       perfilEnergia = await perfilDeEnergia(ar.id);
-      const props = (perfilEnergia as { response?: { property?: unknown } }).response?.property;
+      const resp = (perfilEnergia as { response?: { property?: unknown; result?: { property?: unknown } } }).response;
+      const props = resp?.result?.property ?? resp?.property;
       const propriedade = (Array.isArray(props) ? props[0] : props) as string | undefined;
       if (typeof propriedade === 'string') {
         const hoje = new Date();
         const ini = new Date(hoje.getTime() - 30 * 86_400_000);
-        energia = await energiaDoDispositivo(ar.id, propriedade, 'DAILY', ymd(ini), ymd(hoje));
+        // O formato de data aceito não está documentado: tenta YYYY-MM-DD e depois YYYYMMDD.
+        for (const compacto of [false, true]) {
+          const f = (d: Date) => (compacto ? ymd(d).replace(/-/g, '') : ymd(d));
+          try {
+            energia = await energiaDoDispositivo(ar.id, propriedade, 'DAILY', f(ini), f(hoje));
+            erroEnergia = null;
+            break;
+          } catch (e) {
+            erroEnergia = texto(e);
+          }
+        }
       } else {
         erroEnergia = 'Perfil de energia sem propriedade reconhecida';
       }
