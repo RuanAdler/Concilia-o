@@ -8,7 +8,7 @@ import type { ReactNode } from 'react';
 import { MODES, type Device, type Mode } from '@/lib/device';
 import { MONTHS, MON, WD, brl, brl0, cap, dl, hhmm, nf, parseNum, parseYmd } from '@/lib/fmt';
 import { useMontado } from '@/lib/cliente';
-import { custoDe, delta, diasNoMes, mediaAnterior, periodos, projecaoMes, soma, tarifaDoMes } from '@/lib/stats';
+import { calcularConta, custoDe, delta, diasNoMes, mediaAnterior, periodos, projecaoMes, soma, tarifaDoMes } from '@/lib/stats';
 import { Barras, LinhaMedia, Spinner, card, rotulo } from './ui';
 import type { Cmd, Dados } from './tipos';
 
@@ -112,6 +112,15 @@ export default function Inicio(p: Props) {
     : pct >= 0.8 && cfg.alert80
       ? { bg: 'var(--amber-soft)', fg: 'var(--amber)', t: `Você já usou ${nf(pct * 100, 0)}% da meta`, s: `Restam ${f(meta - gasto)} para ${restam} dias` }
       : null;
+
+  // fatia do ar na conta de luz
+  const mesConta = cfg.conta.mes || `${new Date(hoje.getFullYear(), hoje.getMonth() - 1, 1).getFullYear()}-${String(((hoje.getMonth() + 11) % 12) + 1).padStart(2, '0')}`;
+  const conta = cfg.conta.valor && cfg.conta.kwh
+    ? calcularConta({ valor: parseNum(cfg.conta.valor), kwh: parseNum(cfg.conta.kwh), fixas: parseNum(cfg.conta.fixas), mes: mesConta }, dias, hoje)
+    : null;
+  const contaMes = MONTHS[Number(mesConta.slice(5, 7)) - 1];
+  const fatia = conta && (conta.cobertura >= 0.95 ? conta.share : conta.shareMesCheio);
+  const fatiaReais = conta && (conta.cobertura >= 0.95 ? conta.custoAr : conta.custoMesCheio);
 
   // mês × mês passado
   const mx = Math.max(kMes, kMesAnt) || 1;
@@ -339,6 +348,22 @@ export default function Inicio(p: Props) {
               </div>
             </div>
           </section>
+
+          {conta && fatia != null && fatiaReais != null && (
+            <section style={{ ...card(26, '18px 20px'), display: 'grid', gap: 8 }}>
+              <div style={{ fontSize: 15, fontWeight: 800 }}>O ar na sua conta de {contaMes}</div>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 12 }}>
+                <span style={{ fontSize: 40, fontWeight: 800, letterSpacing: '-0.03em' }}>{nf(fatia * 100, 0)}%</span>
+                <span style={{ fontSize: 20, fontWeight: 700, color: 'var(--accent)' }}>≈ {brl(fatiaReais)}</span>
+              </div>
+              <div style={{ height: 12, borderRadius: 6, background: 'var(--surface2)' }}>
+                <div style={{ height: '100%', borderRadius: 6, background: 'var(--accent)', width: `${montado ? Math.min(100, fatia * 100) : 0}%`, transition: 'width 1s cubic-bezier(.2,.8,.2,1)' }} />
+              </div>
+              <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--muted)', lineHeight: 1.4 }}>
+                {conta.cobertura >= 0.95 ? `${nf(conta.kwhAr, 0)} kWh do ar de ${nf(parseNum(cfg.conta.kwh), 0)} kWh da conta.` : `Estimativa: o app tem ${conta.diasComDado} de ${conta.diasDoMes} dias de ${contaMes}.`}
+              </div>
+            </section>
+          )}
 
           <section style={{ ...card(26, '18px 20px'), display: 'grid', gap: 12 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
