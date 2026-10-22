@@ -1,11 +1,14 @@
 'use client';
 
-import { Pencil, Trash2 } from 'lucide-react';
-import { useState } from 'react';
+import { CircleAlert, Plus } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import type { Config } from '@/lib/cliente';
-import { MON, MONTHS, brl, brl0, cap, dl, nf, parseNum, parseYmd, ymd } from '@/lib/fmt';
-import { calcularConta, cicloAnterior, cicloDe, cicloPorRef, contaAtual, diasEntre, fatiaDaConta, type ContaSalva, type Dia } from '@/lib/stats';
-import { card, rotulo } from './ui';
+import { CONTAS_INICIAIS } from '@/lib/contas-iniciais';
+import { MONTHS, brl, brl0, cap, dl, nf, parseNum, parseYmd, ymd } from '@/lib/fmt';
+import { cicloAnterior, cicloDe, cicloPorRef, contaAtual, diasDoPeriodo, diasEntre, fatiaDaConta, soma, type ContaSalva, type Dia } from '@/lib/stats';
+import { Ajuda, Selo } from './selos';
+import { Folha } from './Sheets';
+import { Switch, card, rotulo } from './ui';
 
 type Props = {
   cfg: Config;
@@ -14,211 +17,375 @@ type Props = {
   hoje: Date;
   diaLeitura: number;
   semArDia: number;
-  contas: Record<string, ContaSalva>; // contas que já vêm no app + as salvas
+  contas: Record<string, ContaSalva>; // as que já vêm no app + as salvas
   salvas: Record<string, ContaSalva>; // só as que o usuário salvou
   setContas: (f: (c: Record<string, ContaSalva>) => Record<string, ContaSalva>) => void;
 };
 
-const rot = { fontSize: 13, fontWeight: 700, color: 'var(--muted)' } as const;
-const nomeMes = (ym: string) => cap(MONTHS[Number(ym.slice(5, 7)) - 1]);
-const numTxt = (n: number) => String(n).replace('.', ',');
+type Tipo = 'lg' | 'estimativa' | 'diferenca' | 'antes' | 'incompleta' | 'semdados';
+
+const MON3 = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+const nomeRef = (ym: string) => `${ym.slice(5)}/${ym.slice(0, 4)}`;
+const mesNome = (ym: string) => cap(MONTHS[Number(ym.slice(5, 7)) - 1]);
+const venceEm = (fim: string) => MONTHS[Number(fim.slice(5, 7)) % 12];
+const numTxt = (n: number) => (n ? String(n).replace('.', ',') : '');
+
+/** Tudo o que as telas mostram sobre uma conta: período, fatia do ar e como ela foi calculada. */
+function analisar(c: ContaSalva, dias: Dia[], semArDia: number) {
+  const a = contaAtual(c, dias);
+  const f = fatiaDaConta(a, semArDia);
+  const inicio = a.inicio ?? cicloPorRef(a.mes, 16).inicio;
+  const fim = a.fim ?? cicloPorRef(a.mes, 16).fim;
+  const nDias = diasEntre(inicio, fim);
+  const tipo: Tipo = f.antesDoAr ? 'antes' : f.incompleta ? 'incompleta' : f.share == null ? 'semdados' : f.porDiferenca ? 'diferenca' : f.estimada ? 'estimativa' : 'lg';
+  const arR = f.custoAr;
+  const resto = arR != null ? Math.max(0, a.valor - a.fixas - arR) : null;
+  return { c: a, f, inicio, fim, nDias, tipo, arR, resto };
+}
+type Analise = ReturnType<typeof analisar>;
+
+function Empilhada({ a, altura = 20, legenda = false }: { a: Analise; altura?: number; legenda?: boolean }) {
+  const total = a.c.valor || 1;
+  const ar = a.arR ?? 0;
+  const resto = a.resto ?? Math.max(0, a.c.valor - a.c.fixas);
+  const seg = [
+    { l: 'Ar', v: ar, bg: a.tipo === 'lg' ? 'var(--accent)' : 'var(--bar)' },
+    { l: 'Resto da casa', v: resto, bg: 'var(--slate)' },
+    { l: 'Taxas fixas (iluminação pública)', v: a.c.fixas, bg: 'var(--fee)' },
+  ];
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 2, height: altura, borderRadius: altura / 2, overflow: 'hidden' }} role="img" aria-label={`Ar ${brl0(ar)}, resto da casa ${brl0(resto)}, taxas ${brl0(a.c.fixas)}`}>
+        {seg.map((x) => x.v > 0 && <span key={x.l} style={{ width: `${(x.v / total) * 100}%`, background: x.bg, ...(a.tipo !== 'lg' && x.l === 'Ar' ? { backgroundImage: 'repeating-linear-gradient(135deg, transparent 0 3px, rgba(255,255,255,.35) 3px 5px)' } : {}) }} />)}
+      </div>
+      {legenda && (
+        <div style={{ display: 'grid', gap: 6, marginTop: 10 }}>
+          {seg.map((x) => (
+            <div key={x.l} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 600 }}>
+              <i style={{ width: 10, height: 10, borderRadius: 3, background: x.bg, flex: 'none' }} />
+              <span style={{ flex: 1, color: 'var(--muted)' }}>{x.l}</span>
+              <b>{brl(x.v)}</b>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const seloCalculo = (t: Tipo) =>
+  t === 'lg' ? <Selo tipo="real" texto="Ar pela LG" /> : t === 'diferenca' ? <Selo tipo="diferenca" texto="≈ Estimada pela diferença" /> : t === 'estimativa' ? <Selo tipo="estimativa" /> : t === 'antes' ? <Selo tipo="neutro" texto="Antes do ar" /> : t === 'incompleta' ? <Selo tipo="erro" texto="Incompleta" /> : <Selo tipo="neutro" texto="Sem dados do ar" />;
 
 export default function Contas({ cfg, setCfg, dias, hoje, diaLeitura, semArDia, contas, salvas, setContas }: Props) {
-  const [aviso, setAviso] = useState<{ texto: string; erro: boolean } | null>(null);
-  const [apagando, setApagando] = useState<string | null>(null);
+  const [sel, setSel] = useState<string | null>(null);
+  const [folha, setFolha] = useState<{ editando: string | null } | null>(null);
 
-  const setConta = (k: 'valor' | 'kwh' | 'fixas' | 'mes' | 'inicio' | 'fim', v: string) => {
-    setAviso(null);
-    // ao trocar o mês da conta, as datas voltam a ser calculadas pelo dia da leitura
-    setCfg((c) => ({ ...c, conta: { ...c.conta, [k]: v, ...(k === 'mes' ? { inicio: '', fim: '' } : {}) } }));
-  };
-
-  // a última conta recebida é a do ciclo que acabou de fechar
-  const mesPadrao = cicloAnterior(cicloDe(hoje, diaLeitura), diaLeitura).ref;
-  const mesConta = cfg.conta.mes || mesPadrao;
-  const auto = cicloPorRef(mesConta, diaLeitura);
-  const inicio = cfg.conta.inicio || auto.inicio;
-  const fim = cfg.conta.fim || auto.fim;
-  const periodoInvalido = fim <= inicio;
-  const numeros = { valor: parseNum(cfg.conta.valor), kwh: parseNum(cfg.conta.kwh), fixas: parseNum(cfg.conta.fixas), mes: mesConta, inicio, fim };
-  const rotuloPeriodo = periodoInvalido ? null : `${dl(parseYmd(inicio))} a ${dl(parseYmd(fim))}`;
-  const r = calcularConta(numeros, dias, hoje);
-  const jaSalva = Boolean(contas[mesConta]);
-
-  const salvar = (preencher: boolean) => {
-    if (!r) {
-      setAviso({ erro: true, texto: periodoInvalido ? 'A leitura atual precisa ser depois da leitura anterior.' : 'Preencha o valor total e os kWh da conta (o valor tem que ser maior que as taxas fixas).' });
-      return;
-    }
-    const salva: ContaSalva = { mes: mesConta, valor: numeros.valor, kwh: numeros.kwh, fixas: numeros.fixas, kwhAr: r.kwhAr, diasComDado: r.diasComDado, diasDoMes: r.diasDoMes, inicio, fim, salvoEm: Date.now() };
-    setContas((c) => ({ ...c, [mesConta]: salva }));
-    // a tarifa daquele mês também fica guardada, para o custo dele no Histórico; o mês atual segue a tarifa dos Ajustes
-    if (!preencher && mesConta !== ymd(hoje).slice(0, 7)) setCfg((c) => ({ ...c, tarifas: { ...c.tarifas, [mesConta]: r.tarifa } }));
-
-    let texto = `Conta de ${MONTHS[Number(mesConta.slice(5, 7)) - 1]} ${jaSalva ? 'atualizada' : 'salva'}.`;
-    if (preencher) {
-      const meta = r.custoMesCheio;
-      const metaArred = meta != null ? Math.ceil(meta / 5) * 5 : null;
-      setCfg((c) => ({
-        ...c,
-        tariffMode: 'direto',
-        tariff: nf(r.tarifa, 4),
-        tarifaDefinida: true,
-        tarifas: { ...c.tarifas, [mesConta]: r.tarifa },
-        since: r.desde,
-        base: '0',
-        ...(metaArred != null ? { goalType: 'R$' as const, goal: nf(metaArred, 0) } : {}),
-        conta: { ...c.conta, mes: mesConta },
-      }));
-      texto += ` Preenchi: tarifa ${brl(r.tarifa)}/kWh, acumulado desde ${dl(parseYmd(r.desde))}${metaArred != null ? `, meta mensal ${brl0(metaArred)}` : ' (a meta não mudou: faltam dados daquele mês)'}.`;
-    }
-    setAviso({ erro: false, texto });
-  };
-
-  // meses salvos, do mais antigo para o mais novo (para calcular a variação)
-  const cronologica = Object.values(contas)
+  const lista = Object.values(contas)
     .sort((a, b) => a.mes.localeCompare(b.mes))
-    .map((c) => {
-      const a = contaAtual(c, dias);
-      return { c: a, f: fatiaDaConta(a, semArDia) };
-    });
-  const lista = cronologica.map((x, i) => ({ ...x, ant: i > 0 ? cronologica[i - 1].f : null })).reverse();
-  const comShare = cronologica.filter((x) => x.f.share != null).slice(-12);
-  const mxShare = Math.max(...comShare.map((x) => x.f.share ?? 0), 0.01);
-
-  const editar = (c: ContaSalva) => {
-    setAviso(null);
-    setCfg((cf) => ({ ...cf, conta: { valor: numTxt(c.valor), kwh: numTxt(c.kwh), fixas: numTxt(c.fixas), mes: c.mes, inicio: c.inicio ?? '', fim: c.fim ?? '' } }));
-    window.scrollTo(0, 0);
-  };
+    .map((c) => analisar(c, dias, semArDia));
+  const recentes = [...lista].reverse();
+  const ativa = lista.find((x) => x.c.mes === sel) ?? lista[lista.length - 1];
+  const proxima = cicloDe(hoje, diaLeitura);
 
   return (
     <>
-      <h1 style={{ margin: 0, fontSize: 24, fontWeight: 800, letterSpacing: '-0.02em' }}>Contas de luz</h1>
+      <header>
+        <h1 style={{ margin: 0, fontSize: 24, fontWeight: 800, letterSpacing: '-0.02em' }}>Contas de luz</h1>
+        <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--muted)' }}>Quanto de cada conta foi do ar.</div>
+      </header>
 
-      <section style={{ ...card(26, '18px 20px'), display: 'grid', gap: 12 }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--muted)', lineHeight: 1.45 }}>
-          Digite o que está na conta de um mês. O app mostra quanto dela foi do ar-condicionado, e você pode salvar para comparar os meses depois.
-        </div>
-        <label style={rot}>Mês da conta
-          <input className="input" type="month" value={mesConta} onChange={(e) => e.target.value && setConta('mes', e.target.value)} />
-        </label>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-          <label style={rot}>Leitura anterior
-            <input className="input" type="date" value={inicio} onChange={(e) => e.target.value && setConta('inicio', e.target.value)} />
-          </label>
-          <label style={rot}>Leitura atual
-            <input className="input" type="date" value={fim} onChange={(e) => e.target.value && setConta('fim', e.target.value)} />
-          </label>
-        </div>
-        <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.4, marginTop: -6 }}>
-          {periodoInvalido
-            ? 'A leitura atual precisa ser depois da anterior.'
-            : `Contando o ar em ${diasEntre(inicio, fim)} dias, de ${rotuloPeriodo}. As datas vêm do dia da leitura (dia ${diaLeitura}, em Ajustes); você pode mudar se a sua conta tiver outras.`}
-        </div>
-        <label style={rot}>Valor total da conta (R$)
-          <input className="input" inputMode="decimal" placeholder="ex.: 480,00" value={cfg.conta.valor} onChange={(e) => setConta('valor', e.target.value)} />
-        </label>
-        <label style={rot}>Consumo da conta (kWh)
-          <input className="input" inputMode="decimal" placeholder="ex.: 400" value={cfg.conta.kwh} onChange={(e) => setConta('kwh', e.target.value)} />
-        </label>
-        <label style={rot}>Iluminação pública e outras taxas fixas (R$, opcional)
-          <input className="input" inputMode="decimal" value={cfg.conta.fixas} onChange={(e) => setConta('fixas', e.target.value)} />
-        </label>
+      {/* chips */}
+      <div style={{ display: 'flex', gap: 8, overflowX: 'auto', margin: '0 -18px', padding: '0 18px' }} role="tablist" aria-label="Contas">
+        {lista.map((x) => {
+          const a = ativa?.c.mes === x.c.mes;
+          return (
+            <button key={x.c.mes} role="tab" aria-selected={a} onClick={() => setSel(x.c.mes)} className="press" style={{ flex: 'none', height: 44, padding: '0 16px', borderRadius: 22, fontSize: 14, fontWeight: 800, background: a ? 'var(--ink)' : 'var(--surface)', color: a ? 'var(--bg)' : 'var(--ink)', border: '1px solid var(--line)' }}>
+              {MON3[Number(x.c.mes.slice(5, 7)) - 1]} · {x.c.mes.slice(5)}
+            </button>
+          );
+        })}
+      </div>
 
-        {r && (
-          <div style={{ padding: '12px 14px', borderRadius: 14, background: 'var(--accent-soft)', fontSize: 14, fontWeight: 700, lineHeight: 1.45 }}>
-            {r.cobertura >= 0.95 ? (
-              <>O ar foi <b>{nf(r.share * 100, 0)}%</b> da conta de {MONTHS[Number(mesConta.slice(5, 7)) - 1]}, cerca de <b>{brl(r.custoAr)}</b> ({nf(r.kwhAr, 0)} kWh).</>
-            ) : r.shareMesCheio != null && r.custoMesCheio != null ? (
-              <>Tenho {r.diasComDado} de {r.diasDoMes} dias desse período. Estimando o período inteiro, o ar deve ter sido cerca de <b>{nf(r.shareMesCheio * 100, 0)}%</b> da conta, <b>{brl(r.custoMesCheio)}</b>.</>
+      {/* resposta em destaque */}
+      {ativa && (
+        <section style={{ ...card(26, '20px 20px 18px'), display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start', gap: 12 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <h2 style={{ margin: 0, fontSize: 17, fontWeight: 800 }}>Conta {nomeRef(ativa.c.mes)}</h2>
+            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--muted)' }}>Cobre {dl(parseYmd(ativa.inicio))} a {dl(parseYmd(ativa.fim))} · vence em {venceEm(ativa.fim)}</div>
+          </div>
+          <Ajuda>A fatia do ar é quanto do consumo da conta foi do Gelinho. Quando a LG tem os dados do período, usamos eles. Quando não tem, estimamos: consumo da conta menos o que a casa gasta sem o ar (cerca de {nf(semArDia, 1)} kWh por dia).</Ajuda>
+
+          <div style={{ flexBasis: '100%', display: 'grid', gap: 14 }}>
+            {ativa.tipo === 'incompleta' ? (
+              <div style={{ display: 'flex', gap: 12, padding: '14px 16px', borderRadius: 18, background: 'var(--red-soft)' }}>
+                <CircleAlert size={22} color="var(--red)" style={{ flex: 'none' }} />
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 15, fontWeight: 800 }}>Falta o consumo desta conta</div>
+                  <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--muted)', margin: '2px 0 8px' }}>Sem o total em kWh, não dá para saber quanto da conta foi do ar.</div>
+                  <button onClick={() => setFolha({ editando: ativa.c.mes })} className="press" style={{ height: 44, padding: '0 16px', borderRadius: 14, background: 'var(--surface)', color: 'var(--red)', fontSize: 14, fontWeight: 800 }}>Completar conta</button>
+                </div>
+              </div>
+            ) : ativa.tipo === 'antes' ? (
+              <div>
+                <div style={{ fontSize: 22, fontWeight: 800, lineHeight: 1.2 }}>Nesta conta o ar ainda não existia</div>
+                <p style={{ margin: '6px 0 0', fontSize: 14, fontWeight: 600, color: 'var(--muted)', lineHeight: 1.45 }}>
+                  A casa gastou {nf(ativa.c.kwh, 0)} kWh em {ativa.nDias} dias, ou {nf(ativa.c.kwh / ativa.nDias, 1)} kWh por dia, sem ar-condicionado. Contas assim servem de base para estimar as outras.
+                </p>
+              </div>
+            ) : ativa.f.share != null && ativa.arR != null ? (
+              <div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--muted)' }}>{ativa.tipo === 'diferenca' ? 'Estimamos que o ar foi cerca de' : 'O ar foi'}</div>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 60, fontWeight: 800, letterSpacing: '-0.045em', lineHeight: 1.05 }}>{nf(ativa.f.share * 100, 0)}%</span>
+                  <span style={{ fontSize: 20, fontWeight: 800 }}>da sua conta</span>
+                </div>
+                <div style={{ fontSize: 17, fontWeight: 700 }}>cerca de {brl0(ativa.arR)} de {brl(ativa.c.valor)}</div>
+                <div style={{ marginTop: 8 }}>{seloCalculo(ativa.tipo)}</div>
+              </div>
             ) : (
-              <>Tenho só {r.diasComDado} de {r.diasDoMes} dias desse período, pouco para dizer quanto da conta foi do ar. Você ainda pode salvar a conta.</>
+              <div>
+                <div style={{ fontSize: 20, fontWeight: 800 }}>Sem dados do ar neste período</div>
+                <p style={{ margin: '4px 0 0', fontSize: 14, fontWeight: 600, color: 'var(--muted)' }}>Preencha o consumo da casa sem o ar nos Ajustes para estimar pela diferença.</p>
+              </div>
+            )}
+
+            {ativa.tipo !== 'incompleta' && ativa.tipo !== 'antes' && ativa.arR != null && <Empilhada a={ativa} legenda />}
+
+            {ativa.tipo === 'diferenca' && ativa.f.kwhDiferenca != null && (
+              <div style={{ padding: '12px 14px', borderRadius: 16, background: 'var(--amber-soft)', fontSize: 13.5, fontWeight: 600, lineHeight: 1.45 }}>
+                <b style={{ color: 'var(--amber)' }}>≈ </b>A LG ainda não tinha dados deste período. Conta: consumo da conta ({nf(ativa.c.kwh, 0)} kWh) menos o da casa sem o ar ({nf(semArDia, 1)} kWh × {ativa.nDias} dias = {nf(semArDia * ativa.nDias, 0)} kWh).
+              </div>
+            )}
+            {ativa.tipo === 'estimativa' && (
+              <div style={{ padding: '12px 14px', borderRadius: 16, background: 'var(--surface2)', fontSize: 13.5, fontWeight: 600, lineHeight: 1.45 }}>
+                O app tinha {ativa.c.diasComDado} de {ativa.nDias} dias deste período e estimou o resto no mesmo ritmo.
+                {ativa.f.kwhDiferenca != null && <> Pela diferença com a casa sem o ar, o ar teria gastado ≈ {nf(ativa.f.kwhDiferenca, 0)} kWh, contra ≈ {nf(ativa.f.kwhMes ?? 0, 0)} kWh pela LG.</>}
+              </div>
+            )}
+            {ativa.tipo === 'lg' && ativa.f.kwhDiferenca != null && ativa.f.kwhMes != null && (
+              <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--muted)', lineHeight: 1.4 }}>
+                Conferindo: pela diferença com a casa sem o ar, o ar teria gastado ≈ {nf(ativa.f.kwhDiferenca, 0)} kWh. A LG informa ≈ {nf(ativa.f.kwhMes, 0)} kWh.
+              </div>
             )}
           </div>
-        )}
+        </section>
+      )}
 
-        <button onClick={() => salvar(false)} className="press" style={{ height: 50, borderRadius: 16, background: 'var(--accent)', color: 'var(--on-accent)', fontSize: 15, fontWeight: 800 }}>
-          {jaSalva ? 'Atualizar este mês' : 'Salvar este mês'}
+      {/* comparativo conta a conta */}
+      {lista.length > 1 && (
+        <section style={{ ...card(26, '18px 16px 14px'), display: 'grid', gap: 10 }}>
+          <h2 style={{ margin: 0, fontSize: 17, fontWeight: 800 }}>Conta a conta</h2>
+          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, height: 150 }}>
+            {lista.slice(-6).map((x) => {
+              const max = Math.max(...lista.slice(-6).map((y) => y.c.valor), 1);
+              const alt = (x.c.valor / max) * 100;
+              const ar = x.arR ?? 0;
+              const resto = x.resto ?? Math.max(0, x.c.valor - x.c.fixas);
+              const a = ativa?.c.mes === x.c.mes;
+              return (
+                <button key={x.c.mes} onClick={() => setSel(x.c.mes)} aria-label={`Conta ${nomeRef(x.c.mes)}`} style={{ flex: 1, height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', alignItems: 'center', gap: 4 }}>
+                  <span style={{ fontSize: 11, fontWeight: 800 }}>{x.tipo === 'antes' ? '—' : x.f.share != null ? `${nf(x.f.share * 100, 0)}%` : '?'}</span>
+                  <span style={{ width: '100%', height: `${Math.max(8, alt * 0.75)}%`, display: 'flex', flexDirection: 'column', borderRadius: 6, overflow: 'hidden', gap: 1, outline: a ? '2px solid var(--ink)' : 'none', outlineOffset: 2 }}>
+                    <span style={{ flex: x.c.fixas, background: 'var(--fee)' }} />
+                    <span style={{ flex: resto, background: 'var(--slate)' }} />
+                    {ar > 0 && <span style={{ flex: ar, background: x.tipo === 'lg' ? 'var(--accent)' : 'var(--bar)' }} />}
+                  </span>
+                  <span style={{ fontSize: 11.5, fontWeight: 800, color: a ? 'var(--ink)' : 'var(--muted)' }}>{MON3[Number(x.c.mes.slice(5, 7)) - 1]}</span>
+                </button>
+              );
+            })}
+          </div>
+          <div style={{ fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.4 }}>Azul: ar (claro = estimado) · cinza: resto da casa · claro embaixo: taxas fixas. O número no topo é a fatia do ar.</div>
+        </section>
+      )}
+
+      {/* suas contas */}
+      <div style={{ ...rotulo, paddingLeft: 4 }}>Suas contas</div>
+      {recentes.map((x) => (
+        <button key={x.c.mes} onClick={() => { setSel(x.c.mes); window.scrollTo(0, 0); }} className="press" style={{ ...card(22, '14px 16px'), textAlign: 'left', display: 'grid', gap: 8, outline: ativa?.c.mes === x.c.mes ? '2px solid var(--ink)' : 'none' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 10 }}>
+            <span style={{ fontSize: 16, fontWeight: 800 }}>Conta {nomeRef(x.c.mes)}</span>
+            <span style={{ fontSize: 15, fontWeight: 800 }}>{brl(x.c.valor)}</span>
+          </div>
+          <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--muted)' }}>
+            {dl(parseYmd(x.inicio))} a {dl(parseYmd(x.fim))} · {x.c.kwh > 0 ? `${nf(x.c.kwh, 0)} kWh` : 'sem kWh'}
+            {x.f.share != null && x.tipo !== 'antes' && <> · ar {nf(x.f.share * 100, 0)}% (≈ {brl0(x.arR ?? 0)})</>}
+          </div>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {salvas[x.c.mes] ? <Selo tipo="neutro" texto="Salva por você" /> : <Selo tipo="neutro" texto="Fixa do app" />}
+            {seloCalculo(x.tipo)}
+          </div>
         </button>
-        <button onClick={() => salvar(true)} className="press" style={{ height: 50, borderRadius: 16, background: 'var(--surface2)', fontSize: 15, fontWeight: 800 }}>
-          Salvar e preencher os ajustes
-        </button>
-        <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.4 }}>
-          Salvar guarda a conta e a tarifa daquele mês, sem mexer nos ajustes. &quot;Preencher os ajustes&quot; também calcula a tarifa atual, a meta mensal e o início do acumulado a partir desta conta.
-        </div>
-        {aviso && <div style={{ fontSize: 13, fontWeight: 700, color: aviso.erro ? 'var(--red)' : 'var(--green)', lineHeight: 1.4 }}>{aviso.texto}</div>}
-      </section>
+      ))}
 
-      <div style={{ ...rotulo, paddingLeft: 4 }}>Meses salvos</div>
+      <button onClick={() => setFolha({ editando: null })} className="press" style={{ height: 54, borderRadius: 18, background: 'var(--ink)', color: 'var(--bg)', fontSize: 16, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+        <Plus size={20} /> Adicionar ou corrigir conta
+      </button>
+      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--muted)', textAlign: 'center' }}>
+        Próxima conta: {nomeRef(proxima.ref)}, com leitura em {dl(parseYmd(proxima.fim))}. Vence em {venceEm(proxima.fim)}.
+      </div>
 
-      {lista.length === 0 ? (
-        <div style={{ ...card(22, '24px 20px'), fontSize: 14, fontWeight: 600, color: 'var(--muted)', textAlign: 'center', lineHeight: 1.45 }}>
-          Nenhuma conta salva ainda. Salve a conta de cada mês para ver a fatia do ar mudar ao longo do tempo.
-        </div>
-      ) : (
-        <>
-          {comShare.length >= 2 && (
-            <section style={card(26, '18px 16px 14px')}>
-              <div style={{ fontSize: 15, fontWeight: 800, marginBottom: 12 }}>Fatia do ar na conta</div>
-              <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, height: 130 }}>
-                {comShare.map((x) => (
-                  <div key={x.c.mes} style={{ flex: 1, height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', alignItems: 'center', gap: 4 }}>
-                    <span style={{ fontSize: 11, fontWeight: 800 }}>{nf((x.f.share ?? 0) * 100, 0)}%</span>
-                    <span style={{ width: '100%', height: `${Math.max(4, ((x.f.share ?? 0) / mxShare) * 70)}%`, background: x.f.estimada ? 'var(--bar)' : 'var(--accent)', borderRadius: '5px 5px 2px 2px' }} />
-                    <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>{cap(MON[Number(x.c.mes.slice(5, 7)) - 1])}</span>
-                  </div>
-                ))}
-              </div>
-              <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 8 }}>Barras claras são estimativas (o app não tinha o mês inteiro).</div>
-            </section>
-          )}
-
-          {lista.map(({ c, f, ant }) => {
-            const dpBruto = f.share != null && ant?.share != null ? (f.share - ant.share) * 100 : null;
-            const dp = dpBruto != null && Math.abs(dpBruto) >= 0.05 ? dpBruto : null;
-            return (
-              <section key={c.mes} style={{ ...card(22, '14px 16px'), display: 'grid', gap: 8 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div style={{ fontSize: 16, fontWeight: 800 }}>{nomeMes(c.mes)} {c.mes.slice(0, 4)}</div>
-                  <div style={{ display: 'flex', gap: 2 }}>
-                    <button onClick={() => editar(c)} aria-label={`Editar ${nomeMes(c.mes)}`} style={{ width: 44, height: 44, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Pencil size={18} /></button>
-                    {!salvas[c.mes] ? (
-                      <span style={{ height: 44, display: 'flex', alignItems: 'center', padding: '0 8px', fontSize: 11.5, fontWeight: 800, color: 'var(--muted)' }}>fixa</span>
-                    ) : apagando === c.mes ? (
-                      <button onClick={() => { setContas((cs) => { const n = { ...cs }; delete n[c.mes]; return n; }); setApagando(null); }} style={{ height: 44, padding: '0 10px', fontSize: 13, fontWeight: 800, color: 'var(--red)' }}>Confirmar</button>
-                    ) : (
-                      <button onClick={() => setApagando(c.mes)} aria-label={`Apagar ${nomeMes(c.mes)}`} style={{ width: 44, height: 44, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--red)' }}><Trash2 size={18} /></button>
-                    )}
-                  </div>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
-                  {f.antesDoAr ? (
-                    <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--muted)' }}>Antes do ar: a casa gastou isso sem ar-condicionado.</span>
-                  ) : f.share != null && f.custoAr != null ? (
-                    <>
-                      <span style={{ fontSize: 30, fontWeight: 800, letterSpacing: '-0.03em' }}>{nf(f.share * 100, 0)}%</span>
-                      <span style={{ fontSize: 17, fontWeight: 700, color: 'var(--accent)' }}>≈ {brl(f.custoAr)}</span>
-                      {f.estimada && <span style={{ fontSize: 11.5, fontWeight: 800, color: 'var(--amber)' }}>{f.porDiferenca ? 'estimado pela diferença' : 'estimativa'}</span>}
-                    </>
-                  ) : (
-                    <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--muted)' }}>Sem dados do ar suficientes nesse mês.</span>
-                  )}
-                </div>
-                {!f.antesDoAr && !f.porDiferenca && f.kwhDiferenca != null && f.kwhMes != null && (
-                  <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>
-                    Conferindo: pela diferença com a casa sem o ar (≈ {nf(semArDia, 1)} kWh por dia), o ar teria gastado ≈ {nf(f.kwhDiferenca, 0)} kWh. A LG informa ≈ {nf(f.kwhMes, 0)} kWh.
-                  </div>
-                )}
-                <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--muted)', lineHeight: 1.45 }}>
-                  {c.inicio && c.fim ? `Leitura ${dl(parseYmd(c.inicio))} a ${dl(parseYmd(c.fim))} · ` : ''}Conta {brl(c.valor)} · {nf(c.kwh, 0)} kWh · tarifa {brl(f.tarifa)}/kWh
-                  {dp != null && <> · <b style={{ color: dp > 0 ? 'var(--amber)' : 'var(--green)' }}>{dp > 0 ? '+' : '−'}{nf(Math.abs(dp), 1)} pontos</b> na fatia do ar</>}
-                </div>
-              </section>
-            );
-          })}
-        </>
+      {folha && (
+        <FormularioConta
+          editando={folha.editando ? contas[folha.editando] ?? null : null}
+          cfg={cfg}
+          setCfg={setCfg}
+          dias={dias}
+          hoje={hoje}
+          diaLeitura={diaLeitura}
+          semArDia={semArDia}
+          contas={contas}
+          salvas={salvas}
+          setContas={setContas}
+          onFechar={() => setFolha(null)}
+          onSalvou={(mes) => { setSel(mes); setFolha(null); window.scrollTo(0, 0); }}
+        />
       )}
     </>
+  );
+}
+
+function Campo({ rot, dica, children }: { rot: string; dica?: string; children: React.ReactNode }) {
+  return (
+    <label style={{ display: 'grid', gap: 4, fontSize: 15, fontWeight: 700 }}>
+      {rot}
+      {children}
+      {dica && <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--muted)', lineHeight: 1.4 }}>{dica}</span>}
+    </label>
+  );
+}
+
+function FormularioConta({ editando, cfg, setCfg, dias, hoje, diaLeitura, semArDia, contas, salvas, setContas, onFechar, onSalvou }: Omit<Props, never> & {
+  editando: ContaSalva | null;
+  onFechar: () => void;
+  onSalvou: (mes: string) => void;
+}) {
+  const padrao = cicloAnterior(cicloDe(hoje, diaLeitura), diaLeitura).ref;
+  const [mes, setMes] = useState(editando?.mes ?? padrao);
+  const auto = cicloPorRef(mes, diaLeitura);
+  const carregar = (m: string) => contas[m];
+  const [valor, setValor] = useState(numTxt(carregar(mes)?.valor ?? 0));
+  const [kwh, setKwh] = useState(numTxt(carregar(mes)?.kwh ?? 0));
+  const [fixas, setFixas] = useState(numTxt(carregar(mes)?.fixas ?? 0));
+  const [inicio, setInicio] = useState(carregar(mes)?.inicio ?? '');
+  const [fim, setFim] = useState(carregar(mes)?.fim ?? '');
+  const [erro, setErro] = useState('');
+  const [apagando, setApagando] = useState(false);
+  const refs = Object.keys(contas);
+  const ehMaisRecente = refs.every((r) => mes >= r);
+  const [atualizar, setAtualizar] = useState(ehMaisRecente);
+  useEffect(() => { setAtualizar(refs.every((r) => mes >= r)); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [mes]);
+
+  const ini = inicio || auto.inicio;
+  const f = fim || auto.fim;
+  const periodoOk = f > ini;
+  const total = parseNum(valor);
+  const consumo = parseNum(kwh);
+  const taxas = parseNum(fixas);
+
+  const opcoes: string[] = [];
+  const base = cicloDe(hoje, diaLeitura).ref;
+  for (let i = 0; i < 24; i++) {
+    const d = new Date(Number(base.slice(0, 4)), Number(base.slice(5)) - 1 - i, 1);
+    opcoes.push(ymd(d).slice(0, 7));
+  }
+  if (!opcoes.includes(mes)) opcoes.push(mes);
+
+  // pré-visualização: monta a conta com o que está digitado e usa o mesmo cálculo da lista
+  const dm = periodoOk ? diasDoPeriodo(dias, ini, f) : [];
+  const rascunho: ContaSalva = { mes, valor: total, kwh: consumo, fixas: taxas, kwhAr: soma(dm), diasComDado: dm.length, diasDoMes: periodoOk ? diasEntre(ini, f) : 0, inicio: ini, fim: f, salvoEm: Date.now() };
+  const prev = total > 0 ? fatiaDaConta(rascunho, semArDia) : null;
+
+  const salvar = () => {
+    if (!(total > 0)) return setErro('Preencha o total a pagar.');
+    if (!periodoOk) return setErro('A leitura atual precisa ser depois da leitura anterior.');
+    if (taxas >= total) return setErro('As taxas fixas não podem ser maiores que o total.');
+    setContas((c) => ({ ...c, [mes]: rascunho }));
+    const tarifa = consumo > 0 ? (total - taxas) / consumo : null;
+    const mesAtualCal = ymd(hoje).slice(0, 7);
+    if (atualizar && tarifa != null) {
+      const arR = prev?.custoAr != null && !prev.antesDoAr ? prev.custoAr : null;
+      setCfg((c) => ({
+        ...c,
+        tariffMode: 'direto',
+        tariff: nf(tarifa, 4),
+        tarifaDefinida: true,
+        tarifas: { ...c.tarifas, [mes]: tarifa },
+        since: f > ymd(hoje) ? ini : f,
+        base: '0',
+        ...(arR != null ? { goalType: 'R$' as const, goal: nf(Math.ceil(arR / 5) * 5, 0) } : {}),
+      }));
+    } else if (tarifa != null && mes !== mesAtualCal) {
+      setCfg((c) => ({ ...c, tarifas: { ...c.tarifas, [mes]: tarifa } }));
+    }
+    onSalvou(mes);
+  };
+
+  const apagar = () => {
+    setContas((c) => { const n = { ...c }; delete n[mes]; return n; });
+    onSalvou(CONTAS_INICIAIS[mes] ? mes : (Object.keys(contas).filter((r) => r !== mes).sort().pop() ?? mes));
+  };
+
+  const existe = Boolean(contas[mes]);
+
+  return (
+    <Folha onFechar={onFechar}>
+      <h2 style={{ margin: '0 0 12px', fontSize: 20, fontWeight: 800 }}>Adicionar ou corrigir conta</h2>
+      <div style={{ display: 'grid', gap: 14 }}>
+        <Campo rot="Mês da conta" dica='Na conta aparece como "Referência".'>
+          <select className="input" value={mes} onChange={(e) => { const m = e.target.value; const c = carregar(m); setMes(m); setValor(numTxt(c?.valor ?? 0)); setKwh(numTxt(c?.kwh ?? 0)); setFixas(numTxt(c?.fixas ?? 0)); setInicio(c?.inicio ?? ''); setFim(c?.fim ?? ''); setErro(''); }}>
+            {opcoes.map((o) => <option key={o} value={o}>{mesNome(o)} {o.slice(0, 4)}</option>)}
+          </select>
+        </Campo>
+        {existe && <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--amber)', marginTop: -6 }}>Corrigindo a conta de {MONTHS[Number(mes.slice(5, 7)) - 1]} {mes.slice(0, 4)}: ao salvar, os números abaixo substituem os atuais.</div>}
+        <Campo rot="Total a pagar (R$)" dica="O valor em destaque no topo da conta.">
+          <input className="input" inputMode="decimal" placeholder="ex.: 367,89" value={valor} onChange={(e) => { setValor(e.target.value); setErro(''); }} />
+        </Campo>
+        <Campo rot="Consumo (kWh)" dica='No quadro de leitura do medidor, linha "Consumo kWh". Se não tiver, deixe em branco.'>
+          <input className="input" inputMode="decimal" placeholder="ex.: 286" value={kwh} onChange={(e) => setKwh(e.target.value)} />
+        </Campo>
+        <Campo rot="Iluminação pública (R$)" dica='Em "Outros lançamentos", às vezes como "CIP" ou "COSIP". Se houver créditos (como o da Itaipu), desconte aqui.'>
+          <input className="input" inputMode="decimal" placeholder="ex.: 26,30" value={fixas} onChange={(e) => { setFixas(e.target.value); setErro(''); }} />
+        </Campo>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+          <Campo rot="Leitura anterior">
+            <input className="input" type="date" value={ini} onChange={(e) => e.target.value && setInicio(e.target.value)} />
+          </Campo>
+          <Campo rot="Leitura atual">
+            <input className="input" type="date" value={f} onChange={(e) => e.target.value && setFim(e.target.value)} />
+          </Campo>
+        </div>
+        <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--muted)', lineHeight: 1.4, marginTop: -6 }}>
+          {periodoOk ? `${diasEntre(ini, f)} dias, preenchidos pelo dia da leitura (${diaLeitura}). Se a sua conta tiver outras datas, corrija aqui.` : 'A leitura atual precisa ser depois da anterior.'}
+        </div>
+
+        <div style={{ padding: '12px 14px', borderRadius: 16, background: 'var(--accent-soft)', fontSize: 14, fontWeight: 700, lineHeight: 1.4 }}>
+          {prev == null
+            ? 'Preencha o total para ver quanto da conta foi do ar.'
+            : prev.antesDoAr
+              ? 'Essa conta é de antes do ar: serve de base para as outras.'
+              : prev.incompleta
+                ? 'Sem o consumo (kWh), não dá para calcular a fatia do ar. A conta fica salva como incompleta.'
+                : prev.share != null && prev.custoAr != null
+                  ? `Com esses números, o ar foi ${nf(prev.share * 100, 0)}% desta conta (${brl0(prev.custoAr)}).${prev.porDiferenca ? ' Estimado pela diferença com a casa sem o ar.' : ''}`
+                  : 'Ainda não há dados do ar neste período.'}
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+          <span style={{ fontSize: 14, fontWeight: 700, lineHeight: 1.35 }}>Usar esta conta para atualizar o preço do kWh e a meta</span>
+          <Switch on={atualizar} onClick={() => setAtualizar(!atualizar)} label="Atualizar preço do kWh e meta" />
+        </div>
+
+        {erro && <div role="alert" style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--red)' }}>{erro}</div>}
+        <button onClick={salvar} className="press" style={{ height: 52, borderRadius: 16, background: 'var(--accent)', color: 'var(--on-accent)', fontSize: 16, fontWeight: 800 }}>Salvar conta</button>
+        {salvas[mes] && (
+          apagando ? (
+            <button onClick={apagar} style={{ minHeight: 44, fontSize: 14, fontWeight: 800, color: 'var(--red)' }}>Confirmar: {CONTAS_INICIAIS[mes] ? 'voltar ao valor original' : 'apagar esta conta'}</button>
+          ) : (
+            <button onClick={() => setApagando(true)} style={{ minHeight: 44, fontSize: 14, fontWeight: 700, color: 'var(--red)' }}>{CONTAS_INICIAIS[mes] ? 'Voltar ao valor original do app' : 'Apagar esta conta'}</button>
+          )
+        )}
+      </div>
+    </Folha>
   );
 }

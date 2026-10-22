@@ -258,3 +258,12 @@ describe('antes do ar', () => {
     expect(fatiaDaConta({ ...c, fim: '2026-08-17' }, 4.3).antesDoAr).toBe(false);
   });
 });
+
+describe('conta incompleta', () => {
+  it('sem kWh não há fatia nem estimativa', () => {
+    const f = fatiaDaConta({ valor: 200, kwh: 0, fixas: 20, kwhAr: 0, diasComDado: 0, diasDoMes: 30, inicio: '2026-09-16', fim: '2026-10-16' }, 4.3);
+    expect(f.incompleta).toBe(true);
+    expect(f.share).toBeNull();
+    expect(f.tarifa).toBe(0);
+  });
+});

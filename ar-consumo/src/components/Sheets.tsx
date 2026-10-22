@@ -3,11 +3,11 @@
 import type { ReactNode } from 'react';
 import { Spinner } from './ui';
 
-function Folha({ onFechar, children }: { onFechar: () => void; children: ReactNode }) {
+export function Folha({ onFechar, children }: { onFechar: () => void; children: ReactNode }) {
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 40, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
       <div onClick={onFechar} style={{ position: 'absolute', inset: 0, background: 'rgba(10,14,20,.45)' }} />
-      <div role="dialog" aria-modal="true" style={{ position: 'relative', width: '100%', maxWidth: 480, background: 'var(--surface)', borderRadius: '28px 28px 0 0', padding: '12px 20px calc(34px + env(safe-area-inset-bottom))' }}>
+      <div role="dialog" aria-modal="true" style={{ position: 'relative', width: '100%', maxWidth: 480, maxHeight: '92%', overflowY: 'auto', background: 'var(--surface)', borderRadius: '28px 28px 0 0', padding: '12px 20px calc(34px + env(safe-area-inset-bottom))' }}>
         <div style={{ width: 40, height: 5, borderRadius: 3, background: 'var(--line)', margin: '0 auto 16px' }} />
         {children}
       </div>
