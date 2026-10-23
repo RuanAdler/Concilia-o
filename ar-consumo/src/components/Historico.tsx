@@ -7,6 +7,11 @@ import { MONTHS, WD, WDL, brl, brl0, cap, dl, nf, parseNum, parseYmd, ymd } from
 import { useMontado } from '@/lib/cliente';
 import { addDias, cicloDe, cicloPorRef, custoDe, diasDoPeriodo, diasEntre, mediaPorDiaSemana, previsaoCiclo, refsDeCiclos, soma, tarifaDoMes, type Ciclo } from '@/lib/stats';
 import { Ajuda, Selo } from './selos';
+import { ClimaBadge, MiniInterruptor } from './ClimaUi';
+import { Thermometer } from 'lucide-react';
+import { T_MAX, T_MIN, caminhoClima, insightClima, posY } from '@/lib/clima';
+import { useClima } from '@/lib/useClima';
+import type { Config } from '@/lib/cliente';
 import { Seg, card } from './ui';
 import type { Dados } from './tipos';
 
@@ -19,7 +24,7 @@ const venceEm = (fim: string) => MONTHS[Number(fim.slice(5, 7)) % 12];
 const botaoNav = (desligado: boolean) => ({ width: 44, height: 44, borderRadius: 14, background: 'var(--surface)', border: '1px solid var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: desligado ? 0.35 : 1 }) as const;
 const crescer = 'cubic-bezier(.2,.8,.2,1)';
 
-export default function Historico({ d }: { d: Dados }) {
+export default function Historico({ d, setCfg }: { d: Dados; setCfg: (f: (c: Config) => Config) => void }) {
   const { cfg, dias, hoje, tarifa, tarifas, diaLeitura, semArDia, contas } = d;
   const montado = useMontado();
   const [vista, setVista] = useState<Vista>('dia');
@@ -40,6 +45,7 @@ export default function Historico({ d }: { d: Dados }) {
   const [selRef, setSelRef] = useState<string>(atual.ref);
   const [selDia, setSelDia] = useState<string | null>(null);
   const [selConta, setSelConta] = useState<string>(atual.ref);
+  const clima = useClima(cfg.showClima && vista === 'dia');
 
   return (
     <>
@@ -71,6 +77,13 @@ export default function Historico({ d }: { d: Dados }) {
     const semana = mediaPorDiaSemana(dias);
     const topSemana = semana.reduce((m, x) => (x.v > m.v ? x : m), semana[0]);
     const custoDia = (x: { data: string; kwh: number }) => x.kwh * tarifaDoMes(tarifas, tarifa, x.data.slice(0, 7));
+    const temp = slots.map((data) => clima.dias[data] ?? null);
+    const comClima = temp.filter((t) => t != null).length;
+    const linhaVisivel = cfg.showClima && comClima > 0;
+    const semClimaNoCiclo = slots.filter((data) => data <= hojeStr && clima.dias[data] == null).length;
+    const selT = selecionado ? clima.dias[selecionado] ?? null : null;
+    const insight = cfg.showClima && comClima > 0 ? insightClima(dias, clima.dias, hojeStr, tarifaMes) : null;
+    const idxSel = selecionado ? slots.indexOf(selecionado) : -1;
 
     return (
       <>
@@ -115,9 +128,11 @@ export default function Historico({ d }: { d: Dados }) {
                     {cap(WDL[parseYmd(selecionado).getDay()])}, {dl(parseYmd(selecionado))}:{' '}
                     {selK != null ? `${nf(selK)} kWh · ${brl(custoDia({ data: selecionado, kwh: selK }))}` : 'sem dado'}
                     {selecionado === hojeStr ? ' (ainda contando)' : ''}
+                    {linhaVisivel ? (selT != null ? ` · máx. ${nf(selT, 0)} °C` : ' · sem clima') : ''}
                   </div>
                 )}
               </div>
+              <div style={{ position: 'relative', paddingRight: linhaVisivel ? 30 : 0 }}>
               <div style={{ display: 'flex', alignItems: 'flex-end', gap: 2, height: 150 }}>
                 {slots.map((data) => {
                   const k = doCiclo.find((x) => x.data === data)?.kwh ?? null;
@@ -128,10 +143,59 @@ export default function Historico({ d }: { d: Dados }) {
                   );
                 })}
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, fontWeight: 700, color: 'var(--muted)', marginTop: 6 }}>
+              {linhaVisivel && (
+                <>
+                  <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true" style={{ position: 'absolute', left: 0, top: 0, width: 'calc(100% - 30px)', height: 150, pointerEvents: 'none', opacity: montado ? 1 : 0, transition: 'opacity .5s ease-out .5s', overflow: 'visible' }}>
+                    <path d={caminhoClima(temp)} fill="none" stroke="var(--clima)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+                  </svg>
+                  {selT != null && idxSel >= 0 && (
+                    <span style={{ position: 'absolute', left: `calc((100% - 30px) * ${(idxSel + 0.5) / slots.length})`, top: `${(posY(selT) / 100) * 150}px`, width: 10, height: 10, marginLeft: -5, marginTop: -5, borderRadius: '50%', background: 'var(--clima)', border: '2px solid var(--surface)', boxSizing: 'content-box', pointerEvents: 'none', transition: 'left .2s ease, top .2s ease' }} />
+                  )}
+                  {[T_MAX, (T_MAX + T_MIN) / 2, T_MIN].map((t) => (
+                    <span key={t} style={{ position: 'absolute', right: 0, top: `${(posY(t) / 100) * 150}px`, transform: 'translateY(-50%)', fontSize: 10.5, fontWeight: 700, color: 'var(--muted)' }}>{t}°</span>
+                  ))}
+                </>
+              )}
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, fontWeight: 700, color: 'var(--muted)', marginTop: 6, paddingRight: linhaVisivel ? 30 : 0 }}>
                 <span>{dl(parseYmd(slots[0]))}</span><span>{dl(parseYmd(slots[Math.floor(slots.length / 2)]))}</span><span>{dl(parseYmd(slots[slots.length - 1]))}</span>
               </div>
-              <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8 }}>Toque numa barra para ver o dia. Tracejado = sem dado ou ainda não chegou.</div>
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8 }}>
+                Toque numa barra para ver o dia. {linhaVisivel ? 'Linha = máxima lá fora. ' : ''}Tracejado = sem dado{linhaVisivel ? '' : ' ou ainda não chegou'}.
+              </div>
+            </section>
+
+            {/* clima: selo, interruptor, estados e insight */}
+            <section style={{ ...card(22, '10px 16px 14px'), display: 'grid', gap: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                <ClimaBadge />
+                <MiniInterruptor ligado={cfg.showClima} onClick={() => setCfg((c) => ({ ...c, showClima: !c.showClima }))} />
+              </div>
+              {!cfg.showClima ? (
+                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--muted)', lineHeight: 1.45 }}>O clima está desligado. Ligue para ver a máxima do dia em Barreiras-BA sobre as barras.</div>
+              ) : clima.estado === 'carregando' && comClima === 0 ? (
+                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--muted)' }}>Buscando o clima de Barreiras-BA…</div>
+              ) : clima.estado === 'erro' && comClima === 0 ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, justifyContent: 'space-between' }}>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--muted)', lineHeight: 1.4 }}>Não consegui buscar o clima agora. O gráfico segue sem a linha.</span>
+                  <button onClick={clima.tentar} style={{ minHeight: 44, padding: '0 8px', fontSize: 13.5, fontWeight: 800, color: 'var(--clima)' }}>Tentar</button>
+                </div>
+              ) : (
+                <>
+                  {semClimaNoCiclo > 0 && comClima > 0 && <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--muted)' }}>Sem clima em {semClimaNoCiclo} {semClimaNoCiclo === 1 ? 'dia' : 'dias'} desta conta: a linha fica com falha.</div>}
+                  {insight && (
+                    <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start', background: 'var(--surface2)', borderRadius: 14, padding: '12px 14px', fontSize: 14, fontWeight: 600, lineHeight: 1.45 }}>
+                      <Thermometer size={20} color="var(--clima)" style={{ flex: 'none', marginTop: 1 }} />
+                      {insight.estado === 'poucos'
+                        ? 'Preciso de pelo menos 5 dias quentes e 5 amenos para comparar o clima com o consumo.'
+                        : insight.igual
+                          ? `Nos dias acima de ${insight.limite} °C, o consumo do ar ficou parecido com o dos dias mais amenos.`
+                          : `Nos dias acima de ${insight.limite} °C, o ar gastou em média ${nf(Math.abs(insight.diferenca), 1)} kWh a ${insight.diferenca > 0 ? 'mais' : 'menos'} (cerca de ${brl(insight.reais)} por dia).`}
+                    </div>
+                  )}
+                  <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>Máxima do dia em Barreiras-BA, de um serviço gratuito.</div>
+                </>
+              )}
             </section>
 
             <section style={{ ...card(22, '14px 16px'), display: 'grid', gap: 8, fontSize: 14, fontWeight: 600, lineHeight: 1.45 }}>

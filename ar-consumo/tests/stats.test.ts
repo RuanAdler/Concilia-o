@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 import {
   agruparCiclos, calcularConta, cicloAnterior, cicloDe, cicloPorRef, contaAtual, custoDe, delta, diasEntre, faixasSemana,
   fatiaDaConta, mediaAnterior, mediaPorDiaSemana, periodosCiclo, previsaoCiclo, projecaoCiclo, refsDeCiclos, tarifaDaUltimaConta, tarifaDoMes,
+  type Dia,
 } from '../src/lib/stats';
 import { parseNum } from '../src/lib/fmt';
+import { caminhoClima, insightClima, mesclarClima, parseClima, posY, precisaBuscar } from '../src/lib/clima';
 import { criarBackup, diasDesde, lerBackup, nomeDoArquivo } from '../src/lib/backup';
 import { CONFIG_PADRAO } from '../src/lib/cliente';
 import { calibrar, ciclosUsaveis, comparacoes, contaPrevista, deveGuardarPrevisao, margemDaFaixa, previsaoDaConta } from '../src/lib/previsao';
@@ -409,5 +411,54 @@ describe('backup', () => {
     expect(diasDesde('2026-10-10T12:00:00Z', agora)).toBe(12);
     expect(diasDesde(null, agora)).toBeNull();
     expect(diasDesde('lixo', agora)).toBeNull();
+  });
+});
+
+describe('clima', () => {
+  it('lê a resposta do serviço e ignora o que vier fora do formato', () => {
+    const r = parseClima({ daily: { time: ['2026-10-20', '2026-10-21', 'x'], temperature_2m_max: [35.2, null, 30] } });
+    expect(r).toEqual({ '2026-10-20': 35.2 });
+    expect(parseClima({ daily: { time: ['2026-10-20'], temperature_2m_max: [1, 2] } })).toBeNull();
+    expect(parseClima(null)).toBeNull();
+  });
+
+  it('só busca de novo com cache vazio ou com mais de 3 horas', () => {
+    const agora = Date.now();
+    expect(precisaBuscar(null, agora)).toBe(true);
+    expect(precisaBuscar({ dias: {}, atualizadoEm: agora }, agora)).toBe(true);
+    expect(precisaBuscar({ dias: { '2026-10-20': 33 }, atualizadoEm: agora - 3_600_000 }, agora)).toBe(false);
+    expect(precisaBuscar({ dias: { '2026-10-20': 33 }, atualizadoEm: agora - 4 * 3_600_000 }, agora)).toBe(true);
+    expect(mesclarClima({ a: 1, b: 2 }, { b: 3 })).toEqual({ a: 1, b: 3 });
+  });
+
+  it('o caminho da linha tem falhas nos dias sem dado e um ponto para dia isolado', () => {
+    const c = caminhoClima([33, 33, null, 40, null, 26]);
+    expect(c.startsWith('M 8.33 50.00 L 25.00 50.00')).toBe(true);
+    expect(c).toContain('M 58.33 0.00 l 0.01 0');
+    expect(c).toContain('M 91.67 100.00 l 0.01 0');
+    expect(c.match(/M /g)).toHaveLength(3);
+    expect(caminhoClima([null, null])).toBe('');
+    expect(posY(33)).toBe(50);
+    expect(posY(50)).toBe(0);
+    expect(posY(10)).toBe(100);
+  });
+
+  it('o insight compara dias quentes e amenos, e pede pelo menos 5 de cada', () => {
+    const dias: Dia[] = [];
+    const clima: Record<string, number> = {};
+    for (let i = 1; i <= 12; i++) {
+      const data = `2026-10-${String(i).padStart(2, '0')}`;
+      const quente = i > 6;
+      clima[data] = quente ? 36 : 31;
+      dias.push(dia(data, quente ? 7 : 5));
+    }
+    const r = insightClima(dias, clima, '2026-10-20', 1.2);
+    expect(r).toMatchObject({ estado: 'ok', limite: 34, igual: false });
+    if (r.estado === 'ok') {
+      expect(r.diferenca).toBeCloseTo(2);
+      expect(r.reais).toBeCloseTo(2.4);
+    }
+    expect(insightClima(dias.slice(0, 6), clima, '2026-10-20', 1.2)).toEqual({ estado: 'poucos' });
+    expect(insightClima(dias, {}, '2026-10-20', 1.2)).toEqual({ estado: 'poucos' });
   });
 });

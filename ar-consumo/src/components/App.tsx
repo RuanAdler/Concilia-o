@@ -463,7 +463,7 @@ export default function App() {
             onSalvarBackup={salvarBackup}
           />
         )}
-        {aba === 'hist' && <Historico d={dados} />}
+        {aba === 'hist' && <Historico d={dados} setCfg={setCfg} />}
         {aba === 'contas' && <Contas d={dados} setCfg={setCfg} salvas={contas} setContas={setContas} onIrCalibracao={irParaCalibracao} foco={contaFoco} onFocoUsado={usouFoco} />}
         {aba === 'set' && (
           <Ajustes
