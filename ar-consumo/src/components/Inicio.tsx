@@ -10,6 +10,7 @@ import { MONTHS, WD, WDL, brl, brl0, cap, dl, hhmm, nf, parseNum, parseYmd, ymd 
 import { useMontado } from '@/lib/cliente';
 import { addDias, contaAtual, custoDe, delta, diasDoPeriodo, fatiaDaConta, periodosCiclo, previsaoCiclo, soma, tarifaDoMes } from '@/lib/stats';
 import { Ajuda, Selo } from './selos';
+import { ContaInteira } from './previsaoUi';
 import { Spinner, card, rotulo } from './ui';
 import type { Cmd, Dados } from './tipos';
 
@@ -215,6 +216,10 @@ export default function Inicio(p: Props) {
                   </div>
                 )}
                 <div style={{ fontSize: 15, fontWeight: 700, lineHeight: 1.4 }}>{frase}</div>
+              </div>
+
+              <div style={{ borderTop: '1px solid var(--line)', paddingTop: 14 }}>
+                <ContaInteira p={d.contaPrev} />
               </div>
             </div>
           </section>

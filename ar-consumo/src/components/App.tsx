@@ -7,6 +7,8 @@ import type { Comando, Device, Mode } from '@/lib/device';
 import { MODES } from '@/lib/device';
 import { mesclarDias, type DiaEnergia } from '@/lib/energia';
 import { dl, hhmm, nf, parseNum, parseYmd, ymd } from '@/lib/fmt';
+import { calibrar, ciclosUsaveis, comparacoes, deveGuardarPrevisao, fixasDaUltimaConta, margemDaFaixa, previsaoDaConta, type Previsao } from '@/lib/previsao';
+import { mediaCasaSemAr } from '@/lib/contas-iniciais';
 import { cicloDe, clampDia, contaAtual, fatiaDaConta, mapaParaDias, tarifaDoMes, type ContaSalva } from '@/lib/stats';
 import { CONTAS_INICIAIS, TARIFAS_INICIAIS } from '@/lib/contas-iniciais';
 import Ajustes from './Ajustes';
@@ -16,7 +18,7 @@ import Historico from './Historico';
 import Inicio, { type ConexaoEstado, type Modo } from './Inicio';
 import Pin from './Pin';
 import { SheetApagar, SheetDiag, type DiagLinha } from './Sheets';
-import type { Cmd, Dados } from './tipos';
+import type { CalibAviso, Cmd, Dados } from './tipos';
 
 type Aba = 'home' | 'hist' | 'contas' | 'set';
 type Salvo = { device: Device; lidoEm: number } | null;
@@ -37,6 +39,8 @@ export default function App() {
   const [mapa, setMapa] = usarLocal<Record<string, number>>('ar.dias', {});
   const [contas, setContas] = usarLocal<Record<string, ContaSalva>>('ar.contas', {});
   const [salvo, setSalvo] = usarLocal<Salvo>('ar.device', null);
+  const [previsoes, setPrevisoes] = usarLocal<Record<string, Previsao>>('ar.previsoes', {});
+  const [calibMemo, setCalibMemo] = usarLocal<{ ultimo: number | null; aviso: CalibAviso | null }>('ar.calib', { ultimo: null, aviso: null });
   const [introVista, setIntroVista, introPronta] = usarLocal<boolean>('ar.intro', false);
   const [introAberta, setIntroAberta] = useState(false);
 
@@ -77,10 +81,41 @@ export default function App() {
   const tarifa = cfg.tariffMode === 'direto' ? parseNum(cfg.tariff) : parseNum(cfg.billKwh) ? parseNum(cfg.billValue) / parseNum(cfg.billKwh) : 0;
   const primeiro = dias[0]?.data ?? ymd(hoje);
   const diaLeitura = clampDia(parseInt(cfg.diaLeitura, 10));
-  const semArDia = parseNum(cfg.semAr);
   const contasTodas = useMemo(() => ({ ...CONTAS_INICIAIS, ...contas }), [contas]);
   const tarifasTodas = useMemo(() => ({ ...TARIFAS_INICIAIS, ...cfg.tarifas }), [cfg.tarifas]);
-  const dados: Dados = { cfg, dias, hoje, tarifa, diaLeitura, semArDia, tarifas: tarifasTodas, desde: cfg.since || cicloDe(hoje, diaLeitura).inicio, base: parseNum(cfg.base), primeiro, contas: contasTodas };
+
+  // casa sem o ar: calibrada pelas contas (ou o valor manual) e a previsão da conta inteira, com faixa pelo erro das previsões
+  const cal = useMemo(() => calibrar(ciclosUsaveis(contasTodas, dias), cfg.calibAuto, parseNum(cfg.semAr), mediaCasaSemAr()), [contasTodas, dias, cfg.calibAuto, cfg.semAr]);
+  const semArDia = cal.valor;
+  const comps = useMemo(() => comparacoes(previsoes, contasTodas), [previsoes, contasTodas]);
+  const margem = margemDaFaixa(comps.map((c) => c.erro), cal.estado === 'calibrado');
+  const contaPrev = previsaoDaConta({
+    dias, hoje, diaLeitura, tarifa, semAr: semArDia, margem,
+    fixas: fixasDaUltimaConta(contasTodas),
+    passada: Object.values(contasTodas).filter((c) => c.valor > 0 && c.mes < cicloDe(hoje, diaLeitura).ref).sort((a, b) => b.mes.localeCompare(a.mes))[0]?.valor ?? null,
+  });
+  const dados: Dados = { cfg, dias, hoje, tarifa, diaLeitura, semArDia, tarifas: tarifasTodas, desde: cfg.since || cicloDe(hoje, diaLeitura).inicio, base: parseNum(cfg.base), primeiro, contas: contasTodas, cal, calibAviso: calibMemo.aviso, contaPrev, previsoes, comps };
+
+  // guarda a previsão da conta (a de meio de ciclo) para compararmos com a conta real quando ela for lançada
+  useEffect(() => {
+    if (contaPrev.espera || !contaPrev.prev) return;
+    const ref = contaPrev.ciclo.ref;
+    if (!deveGuardarPrevisao(contaPrev.decorridos, Boolean(previsoes[ref]))) return;
+    const p = contaPrev.prev;
+    if (previsoes[ref]?.valor === p.valor && previsoes[ref]?.margem === p.margem) return;
+    setPrevisoes((m) => ({ ...m, [ref]: { ref, valor: p.valor, margem: p.margem, salvoEm: new Date().toISOString() } }));
+  }, [contaPrev, previsoes, setPrevisoes]);
+
+  // avisa quando a calibração muda o valor da casa sem o ar (a primeira vez só registra o ponto de partida)
+  useEffect(() => {
+    if (!cfg.calibAuto || cal.n === 0) return;
+    const para = Math.round(cal.valor * 10) / 10;
+    if (calibMemo.ultimo == null) { setCalibMemo({ ultimo: para, aviso: calibMemo.aviso }); return; }
+    if (Math.abs(para - calibMemo.ultimo) < 0.05) return;
+    const ref = cal.usados[0]?.ref ?? '';
+    setCalibMemo({ ultimo: para, aviso: { de: calibMemo.ultimo, para, ref, em: Date.now() } });
+    mostrar(`Ajustei a casa sem o ar de ${calibMemo.ultimo.toFixed(1).replace('.', ',')} para ${para.toFixed(1).replace('.', ',')} kWh por dia${ref ? ` com a conta ${ref.slice(5)}/${ref.slice(0, 4)}` : ''}.`);
+  }, [cal, cfg.calibAuto, calibMemo, setCalibMemo, mostrar]);
 
   // guarda a tarifa de cada mês: mudar o valor não reescreve o custo dos meses passados
   useEffect(() => {
@@ -317,6 +352,7 @@ export default function App() {
   ];
 
   const trocarAba = (a: Aba) => { setAba(a); window.scrollTo(0, 0); };
+  const irParaCalibracao = () => { setAba('set'); setTimeout(() => document.getElementById('calibracao')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60); };
   const itens: [Aba, string, typeof House][] = [['home', 'Início', House], ['hist', 'Histórico', ChartColumn], ['contas', 'Contas', ReceiptText], ['set', 'Ajustes', SlidersHorizontal]];
 
   return (
@@ -344,7 +380,7 @@ export default function App() {
           />
         )}
         {aba === 'hist' && <Historico d={dados} />}
-        {aba === 'contas' && <Contas cfg={cfg} setCfg={setCfg} dias={dias} hoje={hoje} diaLeitura={diaLeitura} semArDia={semArDia} contas={contasTodas} salvas={contas} setContas={setContas} />}
+        {aba === 'contas' && <Contas d={dados} setCfg={setCfg} salvas={contas} setContas={setContas} onIrCalibracao={irParaCalibracao} />}
         {aba === 'set' && (
           <Ajustes
             d={dados}

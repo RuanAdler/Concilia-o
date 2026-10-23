@@ -4,6 +4,7 @@ import {
   fatiaDaConta, mediaAnterior, mediaPorDiaSemana, periodosCiclo, previsaoCiclo, projecaoCiclo, refsDeCiclos, tarifaDaUltimaConta, tarifaDoMes,
 } from '../src/lib/stats';
 import { parseNum } from '../src/lib/fmt';
+import { calibrar, ciclosUsaveis, comparacoes, contaPrevista, deveGuardarPrevisao, margemDaFaixa, previsaoDaConta } from '../src/lib/previsao';
 import { CASA_SEM_AR_PADRAO, CICLOS_ANTES_DO_AR, CONTAS_INICIAIS, TARIFAS_INICIAIS, faixaCasaSemAr, mediaCasaSemAr } from '../src/lib/contas-iniciais';
 
 const dia = (data: string, kwh: number) => ({ data, kwh });
@@ -311,5 +312,68 @@ describe('casa antes do ar', () => {
     const lg = (143.6 / 25) * 30;
     const dif = 286 - mediaCasaSemAr() * 30;
     expect(Math.abs(lg - dif) / dif).toBeLessThan(0.05);
+  });
+});
+
+describe('calibração e previsão da conta inteira', () => {
+  it('com as contas de antes do ar já começa calibrada (média dos medidos de mar a jul)', () => {
+    const u = ciclosUsaveis(CONTAS_INICIAIS, []);
+    expect(u.map((c) => c.ref)).toEqual(['2026-07', '2026-06', '2026-05', '2026-04', '2026-03']);
+    const cal = calibrar(u, true, 4, 4);
+    expect(cal.estado).toBe('calibrado');
+    expect(cal.valor).toBeCloseTo(618 / 152, 3);
+  });
+
+  it('poucos dados, calibrando e manual', () => {
+    expect(calibrar([], true, 4, 4.2)).toMatchObject({ estado: 'poucos', valor: 4.2 });
+    const u = ciclosUsaveis({}, []).slice(0, 2);
+    expect(calibrar(u, true, 4, 4).estado).toBe('calibrando');
+    expect(calibrar(u, false, 4.5, 4)).toMatchObject({ estado: 'manual', valor: 4.5 });
+  });
+
+  it('um ciclo com a LG cobrindo 90% entra com consumo da conta menos o do ar', () => {
+    const dias = Array.from({ length: 28 }, (_, i) => dia(new Date(2026, 8, 16 + i).toISOString().slice(0, 10), 5));
+    const u = ciclosUsaveis({ '2026-10': CONTAS_INICIAIS['2026-10'] }, dias);
+    const out = u.find((c) => c.ref === '2026-10');
+    expect(out?.origem).toBe('lg');
+    expect(out?.kwh).toBeCloseTo(286 - (28 * 5) / (28 / 30), 1);
+  });
+
+  it('margem da faixa: 12% sem erros, erro médio + 4 pontos, com mínimos', () => {
+    expect(margemDaFaixa([], true)).toBe(0.12);
+    expect(margemDaFaixa([0.1, 0.06], true)).toBeCloseTo(0.12);
+    expect(margemDaFaixa([0.005], true)).toBe(0.05);
+    expect(margemDaFaixa([0.005], false)).toBe(0.1);
+  });
+
+  it('conta prevista segue a fórmula do exemplo e arredonda de 5 em 5', () => {
+    const p = contaPrevista({ kwhAr: 165, semAr: 4.3, diasCiclo: 31, tarifa: 1.19, fixas: 26, margem: 0.1 });
+    expect(p.kwhCasa).toBeCloseTo(133.3);
+    expect(p.valor).toBe(380);
+    expect(p.baixo).toBe(345);
+    expect(p.alto).toBe(420);
+  });
+
+  it('previsão só do 4º dia em diante e guarda a de meio de ciclo', () => {
+    const dias = Array.from({ length: 6 }, (_, i) => dia(`2026-10-${16 + i}`, 5));
+    const r = previsaoDaConta({ dias, hoje: new Date(2026, 9, 22), diaLeitura: 16, tarifa: 1.19, semAr: 4, fixas: 26, margem: 0.12, passada: 368 });
+    expect(r.espera).toBe(false);
+    expect(r.decorridos).toBe(7);
+    const cedo = previsaoDaConta({ dias: dias.slice(0, 2), hoje: new Date(2026, 9, 18), diaLeitura: 16, tarifa: 1.19, semAr: 4, fixas: 26, margem: 0.12, passada: null });
+    expect(cedo.espera).toBe(true);
+    expect(cedo.quartoDia).toBe('2026-10-19');
+    expect(deveGuardarPrevisao(3, false)).toBe(false);
+    expect(deveGuardarPrevisao(7, false)).toBe(true);
+    expect(deveGuardarPrevisao(20, true)).toBe(false);
+    expect(deveGuardarPrevisao(20, false)).toBe(true);
+  });
+
+  it('compara previsto e real, com erro e se veio dentro da faixa', () => {
+    const c = comparacoes({ '2026-11': { ref: '2026-11', valor: 380, margem: 0.1, salvoEm: '' } }, { '2026-11': { ...CONTAS_INICIAIS['2026-10'], mes: '2026-11', valor: 391 } });
+    expect(c).toHaveLength(1);
+    expect(c[0].erro).toBeCloseTo(11 / 391, 4);
+    expect(c[0].dentro).toBe(true);
+    expect(c[0].diferenca).toBe(11);
+    expect(comparacoes({ '2026-12': { ref: '2026-12', valor: 400, margem: 0.1, salvoEm: '' } }, {})).toEqual([]);
   });
 });
