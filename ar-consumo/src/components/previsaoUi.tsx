@@ -3,6 +3,7 @@
 import { useMontado } from '@/lib/cliente';
 import { brl, brl0, dl, nf, parseYmd } from '@/lib/fmt';
 import { faixaDe, type Comparacao, type PrevisaoDaConta } from '@/lib/previsao';
+import { CountUp } from './CountUp';
 import { Ajuda, Selo } from './selos';
 
 const listras = 'repeating-linear-gradient(135deg, var(--accent) 0 3px, transparent 3px 7px)';
@@ -44,7 +45,7 @@ export function ContaInteira({ p, destaque = false }: { p: PrevisaoDaConta; dest
         {!destaque && <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--muted)' }}>Conta de luz inteira</div>}
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
           <span style={{ fontSize: destaque ? 15 : 14, fontWeight: 700, color: 'var(--muted)' }}>cerca de</span>
-          <span style={{ fontSize: destaque ? 34 : 22, fontWeight: 800, letterSpacing: '-0.03em', lineHeight: 1.1 }}>{brl0(q.valor)}</span>
+          <span style={{ fontSize: destaque ? 34 : 22, fontWeight: 800, letterSpacing: '-0.03em', lineHeight: 1.1 }}><CountUp v={q.valor} fmt={brl0} /></span>
         </div>
         <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--muted)' }}>entre {brl0(q.baixo)} e {brl0(q.alto)}</div>
       </div>

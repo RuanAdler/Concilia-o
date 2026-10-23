@@ -21,6 +21,7 @@ import Inicio, { type ConexaoEstado, type Modo } from './Inicio';
 import Pin from './Pin';
 import { SheetApagar, SheetDiag, type DiagLinha } from './Sheets';
 import type { CalibAviso, Cmd, Dados } from './tipos';
+import { definirVibracao, vibrar } from '@/lib/movimento';
 
 type Aba = 'home' | 'hist' | 'contas' | 'set';
 type Salvo = { device: Device; lidoEm: number } | null;
@@ -203,6 +204,7 @@ export default function App() {
     clearTimeout(cmdT.current);
     ultimaAcao.current = Date.now();
     setCmd({ status: 'pending', label });
+    if (comando.action === 'power' || comando.action === 'target') vibrar('leve');
     try {
       const r = await fetch('/api/lg/command', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(comando) });
       const j = await json(r);
@@ -218,9 +220,11 @@ export default function App() {
       if (comando.action === 'timer') setDesligaAs(comando.value ? Date.now() + comando.value * 3600_000 : null);
       if (comando.action === 'power' && !comando.value) setDesligaAs(null);
       setCmd({ status: 'ok', label });
+      vibrar('sucesso');
       cmdT.current = setTimeout(() => setCmd(null), 2200);
     } catch {
       setDraft(null);
+      vibrar('erro');
       setCmd({ status: 'error', label, retry: () => exec(label, comando) });
     }
   }, [mostrar]);
@@ -392,6 +396,7 @@ export default function App() {
       }
       setBk((b) => ({ ...b, ultimo: new Date().toISOString() }));
       setBackupNome(nome);
+      vibrar('sucesso');
     } catch (e) {
       if ((e as Error).name !== 'AbortError') mostrar('Não consegui salvar o backup.');
     } finally {
@@ -418,6 +423,7 @@ export default function App() {
       setCfg({ ...CONFIG_PADRAO, ...b.settings, conta: { ...CONFIG_PADRAO.conta, ...b.settings.conta } });
       setCalibMemo({ ultimo: null, aviso: null });
       setRestaurar((r) => r && { ...r, fase: 'pronto' });
+      vibrar('sucesso');
     }, 500);
   };
 
@@ -430,12 +436,14 @@ export default function App() {
   const lancarConta = () => { setContaFoco({ mes: null, abrir: true }); trocarAba('contas'); };
   const usouFoco = useCallback(() => setContaFoco(null), []);
 
+  useEffect(() => { definirVibracao(cfg.vibrar !== false); }, [cfg.vibrar]);
+
   const irParaCalibracao = () => { setAba('set'); setTimeout(() => document.getElementById('calibracao')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60); };
   const itens: [Aba, string, typeof House][] = [['home', 'Início', House], ['hist', 'Histórico', ChartColumn], ['contas', 'Contas', ReceiptText], ['set', 'Ajustes', SlidersHorizontal]];
 
   return (
     <>
-      <main style={{ maxWidth: 480, margin: '0 auto', padding: 'calc(env(safe-area-inset-top) + 24px) 18px 112px', display: 'grid', gap: aba === 'set' ? 12 : 14, alignContent: 'start' }}>
+      <main key={aba} className="aba" style={{ maxWidth: 480, margin: '0 auto', padding: 'calc(env(safe-area-inset-top) + 24px) 18px 112px', display: 'grid', gap: aba === 'set' ? 12 : 14, alignContent: 'start' }}>
         {aba === 'home' && (
           <Inicio
             d={dados}
