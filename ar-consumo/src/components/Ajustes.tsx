@@ -189,6 +189,15 @@ export default function Ajustes({ d, setCfg, nomeLg, nDias, pinConfigurado, cone
         </Linha>
       </Secao>
 
+      <Secao titulo="Histórico">
+        <Linha ultimo>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, fontWeight: 700, fontSize: 15 }}>
+            <span>Mostrar clima no gráfico<div style={dica}>Máxima do dia em Barreiras-BA, de um serviço gratuito.</div></span>
+            <Switch on={cfg.showClima} onClick={() => set('showClima', !cfg.showClima)} label="Mostrar clima no gráfico" />
+          </div>
+        </Linha>
+      </Secao>
+
       <Secao titulo="Aparência">
         <Linha ultimo>
           <div style={{ fontSize: 15, fontWeight: 700 }}>Tema</div>
