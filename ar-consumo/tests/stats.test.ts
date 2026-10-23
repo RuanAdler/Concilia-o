@@ -4,7 +4,7 @@ import {
   fatiaDaConta, mediaAnterior, mediaPorDiaSemana, periodosCiclo, previsaoCiclo, projecaoCiclo, refsDeCiclos, tarifaDaUltimaConta, tarifaDoMes,
 } from '../src/lib/stats';
 import { parseNum } from '../src/lib/fmt';
-import { CONTAS_INICIAIS, TARIFAS_INICIAIS } from '../src/lib/contas-iniciais';
+import { CASA_SEM_AR_PADRAO, CICLOS_ANTES_DO_AR, CONTAS_INICIAIS, TARIFAS_INICIAIS, faixaCasaSemAr, mediaCasaSemAr } from '../src/lib/contas-iniciais';
 
 const dia = (data: string, kwh: number) => ({ data, kwh });
 const hoje = new Date(2026, 9, 22);
@@ -287,5 +287,29 @@ describe('preço do kWh pela última conta', () => {
     const sem = { ...CONTAS_INICIAIS['2026-10'], kwh: 0 };
     expect(tarifaDaUltimaConta({ '2026-10': sem, '2026-09': CONTAS_INICIAIS['2026-09'] })?.mes).toBe('2026-09');
     expect(tarifaDaUltimaConta({})).toBeNull();
+  });
+});
+
+describe('casa antes do ar', () => {
+  it('a média de todos os ciclos é de cerca de 4,0 kWh por dia', () => {
+    const total = CICLOS_ANTES_DO_AR.reduce((s, c) => s + c.kwh, 0);
+    const dias = CICLOS_ANTES_DO_AR.reduce((s, c) => s + c.dias, 0);
+    expect(total).toBe(1033);
+    expect(dias).toBe(258);
+    expect(mediaCasaSemAr()).toBeCloseTo(4.0, 1);
+    expect(CASA_SEM_AR_PADRAO).toBe('4,0');
+  });
+
+  it('a faixa ignora os ciclos estimados', () => {
+    const f = faixaCasaSemAr();
+    expect(f.min).toBeCloseTo(125 / 33, 2);
+    expect(f.max).toBeCloseTo(133 / 30, 2);
+  });
+
+  it('com a média de 4,0 a LG e a diferença ficam a menos de 5% em outubro', () => {
+    // LG: 143,6 kWh em 25 dias, estendido a 30 dias; diferença: 286 kWh − média × 30 dias
+    const lg = (143.6 / 25) * 30;
+    const dif = 286 - mediaCasaSemAr() * 30;
+    expect(Math.abs(lg - dif) / dif).toBeLessThan(0.05);
   });
 });

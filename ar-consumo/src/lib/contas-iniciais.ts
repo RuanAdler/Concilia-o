@@ -21,8 +21,39 @@ export const TARIFAS_INICIAIS: Record<string, number> = Object.fromEntries(
   Object.values(CONTAS_INICIAIS).map((c) => [c.mes, (c.valor - c.fixas) / c.kwh]),
 );
 
-/** Consumo médio da casa antes do ar (contas de junho e julho), em kWh por dia. */
-export const CASA_SEM_AR_PADRAO = '4,3';
+/**
+ * Consumo faturado da casa nos ciclos de antes do ar (histórico de consumo da conta de luz).
+ * Nov/25 a fev/26 têm o mesmo valor repetido (70 kWh) e um salto em fevereiro (205 kWh): parecem
+ * faturados por média e acertados na leitura seguinte, então valem só em conjunto (`estimado`).
+ */
+export type CicloAntesDoAr = { ref: string; kwh: number; dias: number; estimado?: boolean };
+
+export const CICLOS_ANTES_DO_AR: CicloAntesDoAr[] = [
+  { ref: '2025-11', kwh: 70, dias: 15, estimado: true },
+  { ref: '2025-12', kwh: 70, dias: 33, estimado: true },
+  { ref: '2026-01', kwh: 70, dias: 29, estimado: true },
+  { ref: '2026-02', kwh: 205, dias: 29, estimado: true },
+  { ref: '2026-03', kwh: 125, dias: 33 },
+  { ref: '2026-04', kwh: 108, dias: 28 },
+  { ref: '2026-05', kwh: 123, dias: 30 },
+  { ref: '2026-06', kwh: 129, dias: 31 },
+  { ref: '2026-07', kwh: 133, dias: 30 },
+];
+
+/** kWh por dia da casa sem o ar: total de kWh ÷ total de dias dos ciclos informados. */
+export function mediaCasaSemAr(ciclos: CicloAntesDoAr[] = CICLOS_ANTES_DO_AR): number {
+  const dias = ciclos.reduce((s, c) => s + c.dias, 0);
+  return dias ? ciclos.reduce((s, c) => s + c.kwh, 0) / dias : 0;
+}
+
+/** Menor e maior kWh por dia entre os ciclos medidos de verdade (sem os estimados). */
+export function faixaCasaSemAr(ciclos: CicloAntesDoAr[] = CICLOS_ANTES_DO_AR): { min: number; max: number } {
+  const v = ciclos.filter((c) => !c.estimado && c.dias > 0).map((c) => c.kwh / c.dias);
+  return { min: Math.min(...v), max: Math.max(...v) };
+}
+
+/** Valor padrão do campo "Casa sem o ar" (texto, com vírgula): a média de todos os ciclos de antes do ar. */
+export const CASA_SEM_AR_PADRAO = (Math.round(mediaCasaSemAr() * 10) / 10).toFixed(1).replace('.', ',');
 
 /** Dia em que o ar-condicionado foi instalado; ciclos que terminam até essa data são "antes do ar". */
 export const AR_INSTALADO_EM = '2026-08-14';

@@ -30,7 +30,9 @@ export default function App() {
   const cfg = useMemo<Config>(() => {
     const c = { ...CONFIG_PADRAO, ...cfgSalvo, conta: { ...CONFIG_PADRAO.conta, ...cfgSalvo.conta } };
     // a tarifa de R$ 0,95 era só provisória: quem nunca a definiu passa a usar a das contas
-    return cfgSalvo.tarifaDefinida && cfgSalvo.tariff !== '0,95' ? c : { ...c, tariff: CONFIG_PADRAO.tariff, tarifaDefinida: true };
+    // o 4,3 inicial era um palpite (contas de jun e jul): quem não mexeu passa a usar a média de todos os ciclos de antes do ar
+    const semAr = cfgSalvo.semAr === '4,3' ? CONFIG_PADRAO.semAr : c.semAr;
+    return cfgSalvo.tarifaDefinida && cfgSalvo.tariff !== '0,95' ? { ...c, semAr } : { ...c, semAr, tariff: CONFIG_PADRAO.tariff, tarifaDefinida: true };
   }, [cfgSalvo]);
   const [mapa, setMapa] = usarLocal<Record<string, number>>('ar.dias', {});
   const [contas, setContas] = usarLocal<Record<string, ContaSalva>>('ar.contas', {});
