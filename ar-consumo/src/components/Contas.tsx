@@ -1,6 +1,6 @@
 'use client';
 
-import { CircleAlert, Plus } from 'lucide-react';
+import { ChevronRight, CircleAlert, Plus } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import type { Config } from '@/lib/cliente';
 import { CONTAS_INICIAIS } from '@/lib/contas-iniciais';
@@ -8,18 +8,29 @@ import { MONTHS, brl, brl0, cap, dl, nf, parseNum, parseYmd, ymd } from '@/lib/f
 import { cicloAnterior, cicloDe, cicloPorRef, contaAtual, diasDoPeriodo, diasEntre, fatiaDaConta, soma, type ContaSalva, type Dia } from '@/lib/stats';
 import { analisarConta, type AnaliseConta, type TipoConta } from '@/lib/conta-analise';
 import { Ajuda, Selo } from './selos';
+import { ContaInteira, PrevistoReal } from './previsaoUi';
+import type { Dados } from './tipos';
 import { Folha } from './Sheets';
 import { Switch, card, rotulo } from './ui';
 
 type Props = {
+  d: Dados;
+  setCfg: (f: (c: Config) => Config) => void;
+  salvas: Record<string, ContaSalva>; // só as que o usuário salvou (d.contas traz também as fixas do app)
+  setContas: (f: (c: Record<string, ContaSalva>) => Record<string, ContaSalva>) => void;
+  onIrCalibracao: () => void;
+};
+
+/** Props do formulário (janela de adicionar conta). */
+type PropsForm = {
   cfg: Config;
   setCfg: (f: (c: Config) => Config) => void;
   dias: Dia[];
   hoje: Date;
   diaLeitura: number;
   semArDia: number;
-  contas: Record<string, ContaSalva>; // as que já vêm no app + as salvas
-  salvas: Record<string, ContaSalva>; // só as que o usuário salvou
+  contas: Record<string, ContaSalva>;
+  salvas: Record<string, ContaSalva>;
   setContas: (f: (c: Record<string, ContaSalva>) => Record<string, ContaSalva>) => void;
 };
 
@@ -65,7 +76,8 @@ function Empilhada({ a, altura = 20, legenda = false }: { a: Analise; altura?: n
 const seloCalculo = (t: Tipo) =>
   t === 'lg' ? <Selo tipo="real" texto="Ar pela LG" /> : t === 'diferenca' ? <Selo tipo="diferenca" texto="≈ Estimada pela diferença" /> : t === 'estimativa' ? <Selo tipo="estimativa" /> : t === 'antes' ? <Selo tipo="neutro" texto="Antes do ar" /> : t === 'incompleta' ? <Selo tipo="erro" texto="Incompleta" /> : <Selo tipo="neutro" texto="Sem dados do ar" />;
 
-export default function Contas({ cfg, setCfg, dias, hoje, diaLeitura, semArDia, contas, salvas, setContas }: Props) {
+export default function Contas({ d, setCfg, salvas, setContas, onIrCalibracao }: Props) {
+  const { cfg, dias, hoje, diaLeitura, semArDia, contas } = d;
   const [sel, setSel] = useState<string | null>(null);
   const [folha, setFolha] = useState<{ editando: string | null } | null>(null);
 
@@ -82,6 +94,22 @@ export default function Contas({ cfg, setCfg, dias, hoje, diaLeitura, semArDia, 
         <h1 style={{ margin: 0, fontSize: 24, fontWeight: 800, letterSpacing: '-0.02em' }}>Contas de luz</h1>
         <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--muted)' }}>Quanto de cada conta foi do ar.</div>
       </header>
+
+      {/* próxima conta: previsão da conta de luz inteira */}
+      <section style={{ ...card(26, '18px 20px'), display: 'grid', gap: 12 }}>
+        <div>
+          <h2 style={{ margin: 0, fontSize: 17, fontWeight: 800 }}>Próxima conta · {nomeRef(proxima.ref)}</h2>
+          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--muted)' }}>Leitura em {dl(parseYmd(proxima.fim))} · vence em {venceEm(proxima.fim)}</div>
+        </div>
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--muted)', marginBottom: 2 }}>Conta de luz prevista</div>
+          <ContaInteira p={d.contaPrev} destaque />
+        </div>
+        <button onClick={onIrCalibracao} className="press" style={{ minHeight: 48, borderRadius: 14, background: 'var(--surface2)', padding: '0 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, fontSize: 14, fontWeight: 700, textAlign: 'left' }}>
+          <span>Casa sem o ar: {nf(semArDia, 1)} kWh por dia · {d.cal.estado === 'calibrado' ? 'Calibrado' : d.cal.estado === 'calibrando' ? 'Calibrando' : d.cal.estado === 'manual' ? 'Manual' : 'Poucos dados'}</span>
+          <ChevronRight size={18} />
+        </button>
+      </section>
 
       {/* chips */}
       <div style={{ display: 'flex', gap: 8, overflowX: 'auto', margin: '0 -18px', padding: '0 18px' }} role="tablist" aria-label="Contas">
@@ -156,6 +184,13 @@ export default function Contas({ cfg, setCfg, dias, hoje, diaLeitura, semArDia, 
                 Conferindo: pela diferença com a casa sem o ar, o ar teria gastado ≈ {nf(ativa.f.kwhDiferenca, 0)} kWh. A LG informa ≈ {nf(ativa.f.kwhMes, 0)} kWh.
               </div>
             )}
+
+            {ativa.tipo !== 'antes' && ativa.tipo !== 'incompleta' && (() => {
+              const comp = d.comps.find((c) => c.ref === ativa.c.mes) ?? null;
+              const maisRecente = ativa.c.mes === lista[lista.length - 1]?.c.mes;
+              if (!comp && !maisRecente) return null;
+              return <PrevistoReal comp={comp} primeira={d.comps[0]?.ref === ativa.c.mes} />;
+            })()}
           </div>
         </section>
       )}
@@ -210,9 +245,6 @@ export default function Contas({ cfg, setCfg, dias, hoje, diaLeitura, semArDia, 
       <button onClick={() => setFolha({ editando: null })} className="press" style={{ height: 54, borderRadius: 18, background: 'var(--ink)', color: 'var(--bg)', fontSize: 16, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
         <Plus size={20} /> Adicionar ou corrigir conta
       </button>
-      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--muted)', textAlign: 'center' }}>
-        Próxima conta: {nomeRef(proxima.ref)}, com leitura em {dl(parseYmd(proxima.fim))}. Vence em {venceEm(proxima.fim)}.
-      </div>
 
       {folha && (
         <FormularioConta
@@ -244,7 +276,7 @@ function Campo({ rot, dica, children }: { rot: string; dica?: string; children: 
   );
 }
 
-function FormularioConta({ editando, cfg, setCfg, dias, hoje, diaLeitura, semArDia, contas, salvas, setContas, onFechar, onSalvou }: Omit<Props, never> & {
+function FormularioConta({ editando, cfg, setCfg, dias, hoje, diaLeitura, semArDia, contas, salvas, setContas, onFechar, onSalvou }: PropsForm & {
   editando: ContaSalva | null;
   onFechar: () => void;
   onSalvou: (mes: string) => void;

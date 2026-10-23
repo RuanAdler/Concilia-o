@@ -1,11 +1,12 @@
 'use client';
 
-import { Download, Eye, Trash2 } from 'lucide-react';
+import { Download, Eye, RefreshCw, Trash2 } from 'lucide-react';
 import type { ReactNode } from 'react';
 import type { Config } from '@/lib/cliente';
 import { brl, brl0, dl, nf, parseNum, parseYmd } from '@/lib/fmt';
-import { CASA_SEM_AR_PADRAO, CICLOS_ANTES_DO_AR, faixaCasaSemAr, mediaCasaSemAr } from '@/lib/contas-iniciais';
+import { margemDaFaixa } from '@/lib/previsao';
 import { custoDe, periodosCiclo, tarifaDaUltimaConta } from '@/lib/stats';
+import { Selo } from './selos';
 import { Seg, Switch, card, rotulo } from './ui';
 import type { Dados } from './tipos';
 
@@ -23,9 +24,9 @@ type Props = {
   onToast: (t: string) => void;
 };
 
-function Secao({ titulo, children }: { titulo: string; children: ReactNode }) {
+function Secao({ titulo, children, id }: { titulo: string; children: ReactNode; id?: string }) {
   return (
-    <section style={{ display: 'grid', gap: 8 }}>
+    <section id={id} style={{ display: 'grid', gap: 8, scrollMarginTop: 16 }}>
       <div style={{ ...rotulo, paddingLeft: 4 }}>{titulo}</div>
       <div style={card(22, '4px 16px')}>{children}</div>
     </section>
@@ -87,7 +88,7 @@ export default function Ajustes({ d, setCfg, nomeLg, nDias, pinConfigurado, cone
             botao={<button onClick={calcularPelaConta} className="press" style={{ height: 44, borderRadius: 14, background: 'var(--accent-soft)', color: 'var(--ink)', fontSize: 14, fontWeight: 800 }}>Calcular pela última conta</button>}
           />
         </Linha>
-        <Linha>
+        <Linha ultimo>
           <Campo
             rot="Dia da leitura"
             tipo="numeric"
@@ -96,16 +97,55 @@ export default function Ajustes({ d, setCfg, nomeLg, nDias, pinConfigurado, cone
             ajuda='Na conta, procure "Data da leitura" ou "Próxima leitura". É o dia em que o medidor é lido todo mês (de 1 a 28).'
           />
         </Linha>
-        <Linha ultimo>
-          <Campo
-            rot="Casa sem o ar"
-            unidade="kWh/dia"
-            valor={cfg.semAr}
-            aoMudar={(v) => set('semAr', v)}
-            ajuda={`Quanto a casa gastava por dia antes do ar-condicionado: média de ${CICLOS_ANTES_DO_AR.length} contas de antes do ar = ${nf(mediaCasaSemAr(), 1)} kWh por dia (de ${nf(faixaCasaSemAr().min, 1)} a ${nf(faixaCasaSemAr().max, 1)} nos meses medidos). Serve para estimar a fatia do ar nas contas em que a LG não tem dados.`}
-            botao={cfg.semAr !== CASA_SEM_AR_PADRAO ? <button onClick={() => set('semAr', CASA_SEM_AR_PADRAO)} className="press" style={{ height: 44, borderRadius: 14, background: 'var(--surface2)', fontSize: 14, fontWeight: 800 }}>Usar a média das contas ({CASA_SEM_AR_PADRAO})</button> : undefined}
-          />
+      </Secao>
+
+      <Secao titulo="Calibração" id="calibracao">
+        <Linha>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+            <div style={{ fontSize: 15, fontWeight: 700 }}>Casa sem o ar</div>
+            {d.cal.estado === 'calibrado' ? <Selo tipo="ok" texto="Calibrado" /> : d.cal.estado === 'calibrando' ? <Selo tipo="calibrando" texto={`Calibrando: ${d.cal.n} de 3 contas`} /> : d.cal.estado === 'manual' ? <Selo tipo="neutro" texto="Manual" /> : <Selo tipo="poucos" texto="Poucos dados" />}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+            <span style={{ fontSize: 28, fontWeight: 800, letterSpacing: '-0.03em' }}>{nf(d.cal.valor, 1)}</span>
+            <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--muted)' }}>kWh por dia</span>
+          </div>
+          <div style={{ display: 'flex', gap: 6 }} aria-label={`${Math.min(d.cal.n, 3)} de 3 contas usadas`}>
+            {[0, 1, 2].map((i) => <span key={i} style={{ flex: 1, height: 6, borderRadius: 3, background: i < Math.min(d.cal.n, 3) ? 'var(--green)' : 'var(--line)' }} />)}
+          </div>
+          <div style={dica}>
+            {d.cal.estado === 'manual'
+              ? 'Valor que você digitou. A previsão usa ele.'
+              : d.cal.estado === 'poucos'
+                ? `Preciso de uma conta com o ar medido quase o mês todo, ou de uma conta de antes do ar. Até lá, uso ${nf(d.cal.valor, 1)}.`
+                : `Calculado com as últimas ${d.cal.n} contas (${d.cal.usados.map((u) => `${u.ref.slice(5)}/${u.ref.slice(0, 4)}`).join(', ')}).`}
+          </div>
+          {d.calibAviso && d.cal.estado !== 'manual' && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 12, background: 'var(--accent-soft)', fontSize: 13.5, fontWeight: 700, lineHeight: 1.35 }}>
+              <RefreshCw size={18} style={{ flex: 'none' }} />
+              Ajustei de {nf(d.calibAviso.de, 1)} para {nf(d.calibAviso.para, 1)}{d.calibAviso.ref ? ` com a conta ${d.calibAviso.ref.slice(5)}/${d.calibAviso.ref.slice(0, 4)}` : ''}.
+            </div>
+          )}
         </Linha>
+        <Linha ultimo={cfg.calibAuto}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+            <span><div style={{ fontWeight: 700, fontSize: 15 }}>Ajustar sozinho</div><div style={dica}>Recalcula a cada conta lançada</div></span>
+            <Switch on={cfg.calibAuto} onClick={() => set('calibAuto', !cfg.calibAuto)} label="Ajustar sozinho" />
+          </div>
+        </Linha>
+        {!cfg.calibAuto && (
+          <Linha ultimo>
+            <Campo
+              rot="Ajuste manual"
+              unidade="kWh/dia"
+              valor={cfg.semAr}
+              aoMudar={(v) => set('semAr', v)}
+              ajuda="Exemplo: 4,3. Pegue uma conta sem o ar e divida o consumo pelos dias (133 kWh ÷ 30 dias = 4,4)."
+            />
+          </Linha>
+        )}
+        <div style={{ ...dica, padding: '0 0 12px', borderTop: '1px solid var(--line)', paddingTop: 12 }}>
+          Com isso, a faixa da previsão da conta hoje é de ±{Math.round(margemDaFaixa(d.comps.map((c) => c.erro), d.cal.estado === 'calibrado') * 100)}%. Ela fica mais estreita conforme as previsões acertam.
+        </div>
       </Secao>
 
       <Secao titulo="Meta">
