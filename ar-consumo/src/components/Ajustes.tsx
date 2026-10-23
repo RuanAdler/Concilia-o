@@ -1,6 +1,6 @@
 'use client';
 
-import { Download, Eye, RefreshCw, Trash2 } from 'lucide-react';
+import { Download, Eye, RefreshCw, RotateCcw, Save, Trash2 } from 'lucide-react';
 import type { ReactNode } from 'react';
 import type { Config } from '@/lib/cliente';
 import { brl, brl0, dl, nf, parseNum, parseYmd } from '@/lib/fmt';
@@ -22,6 +22,9 @@ type Props = {
   onDiag: () => void;
   onIntro: () => void;
   onToast: (t: string) => void;
+  backup: { rotulo: string; salvando: boolean; salvoNome: string | null };
+  onSalvarBackup: () => void;
+  onRestaurar: () => void;
 };
 
 function Secao({ titulo, children, id }: { titulo: string; children: ReactNode; id?: string }) {
@@ -56,7 +59,7 @@ function Campo({ rot, unidade, valor, aoMudar, ajuda, tipo = 'decimal', botao }:
   );
 }
 
-export default function Ajustes({ d, setCfg, nomeLg, nDias, pinConfigurado, conectado, onExport, onApagar, onDiag, onIntro, onToast }: Props) {
+export default function Ajustes({ d, setCfg, nomeLg, nDias, pinConfigurado, conectado, onExport, onApagar, onDiag, onIntro, onToast, backup, onSalvarBackup, onRestaurar }: Props) {
   const { cfg, dias, hoje, tarifa, tarifas, diaLeitura, contas } = d;
   const set = <K extends keyof Config>(k: K, v: Config[K]) => setCfg((c) => ({ ...c, [k]: v }));
   const per = periodosCiclo(dias, hoje, diaLeitura, d.desde, d.base);
@@ -206,6 +209,18 @@ export default function Ajustes({ d, setCfg, nomeLg, nDias, pinConfigurado, cone
         </Linha>
         <Linha>
           <Campo rot="Somar consumo anterior" unidade="kWh" valor={cfg.base} aoMudar={(v) => set('base', v)} ajuda="Para incluir no total o consumo do ar de antes de o app começar a guardar os dias." />
+        </Linha>
+        <Linha>
+          <button onClick={onSalvarBackup} disabled={backup.salvando} className="press" style={{ display: 'flex', alignItems: 'center', gap: 10, textAlign: 'left', width: '100%', minHeight: 44 }}>
+            <Save size={20} style={{ flex: 'none' }} />
+            <span><div style={{ fontWeight: 800, fontSize: 15 }}>{backup.salvando ? 'Salvando backup…' : 'Salvar backup'}</div><div style={dica}>{backup.salvoNome ? `Salvo agora: ${backup.salvoNome}` : backup.rotulo}</div></span>
+          </button>
+        </Linha>
+        <Linha>
+          <button onClick={onRestaurar} className="press" style={{ display: 'flex', alignItems: 'center', gap: 10, textAlign: 'left', width: '100%', minHeight: 44 }}>
+            <RotateCcw size={20} style={{ flex: 'none' }} />
+            <span><div style={{ fontWeight: 800, fontSize: 15 }}>Restaurar backup</div><div style={dica}>Substitui os dados deste celular</div></span>
+          </button>
         </Linha>
         <Linha>
           <button onClick={onExport} className="press" style={{ display: 'flex', alignItems: 'center', gap: 10, textAlign: 'left', width: '100%', minHeight: 44 }}>

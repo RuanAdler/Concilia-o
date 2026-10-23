@@ -14,6 +14,8 @@ import { CONTAS_INICIAIS, TARIFAS_INICIAIS } from '@/lib/contas-iniciais';
 import Ajustes from './Ajustes';
 import Contas from './Contas';
 import Introducao from './Introducao';
+import RestaurarBackup, { type FaseRestaurar } from './RestaurarBackup';
+import { DIAS_BACKUP_ATRASADO, criarBackup, diasDesde, lerBackup, nomeDoArquivo, type BackupFile, type ResumoBackup } from '@/lib/backup';
 import Historico from './Historico';
 import Inicio, { type ConexaoEstado, type Modo } from './Inicio';
 import Pin from './Pin';
@@ -41,8 +43,15 @@ export default function App() {
   const [salvo, setSalvo] = usarLocal<Salvo>('ar.device', null);
   const [previsoes, setPrevisoes] = usarLocal<Record<string, Previsao>>('ar.previsoes', {});
   const [calibMemo, setCalibMemo] = usarLocal<{ ultimo: number | null; aviso: CalibAviso | null }>('ar.calib', { ultimo: null, aviso: null });
+  const [ui2, setUi2] = usarLocal<{ closing?: string; reminder?: string; backupAte?: number }>('ar.ui2', {});
+  const [bk, setBk, bkPronto] = usarLocal<{ ultimo: string | null; primeiroUso: string }>('ar.backup', { ultimo: null, primeiroUso: '' });
   const [introVista, setIntroVista, introPronta] = usarLocal<boolean>('ar.intro', false);
   const [introAberta, setIntroAberta] = useState(false);
+  const [contaFoco, setContaFoco] = useState<{ mes: string | null; abrir: boolean } | null>(null);
+  const [salvandoBackup, setSalvandoBackup] = useState(false);
+  const [backupNome, setBackupNome] = useState<string | null>(null);
+  const [restaurar, setRestaurar] = useState<{ fase: FaseRestaurar; arquivo: string; resumo: ResumoBackup | null; motivo: string; backup: BackupFile | null } | null>(null);
+  const arquivoRef = useRef<HTMLInputElement>(null);
 
   const [aba, setAba] = useState<Aba>('home');
   const [conn, setConn] = useState<ConexaoEstado>('loading');
@@ -95,6 +104,11 @@ export default function App() {
     passada: Object.values(contasTodas).filter((c) => c.valor > 0 && c.mes < cicloDe(hoje, diaLeitura).ref).sort((a, b) => b.mes.localeCompare(a.mes))[0]?.valor ?? null,
   });
   const dados: Dados = { cfg, dias, hoje, tarifa, diaLeitura, semArDia, tarifas: tarifasTodas, desde: cfg.since || cicloDe(hoje, diaLeitura).inicio, base: parseNum(cfg.base), primeiro, contas: contasTodas, cal, calibAviso: calibMemo.aviso, contaPrev, previsoes, comps };
+
+  // marca o primeiro uso para contar os dias sem backup de quem nunca salvou um
+  useEffect(() => {
+    if (bkPronto && !bk.primeiroUso) setBk((b) => ({ ...b, primeiroUso: new Date().toISOString() }));
+  }, [bkPronto, bk.primeiroUso, setBk]);
 
   // guarda a previsão da conta (a de meio de ciclo) para compararmos com a conta real quando ela for lançada
   useEffect(() => {
@@ -352,6 +366,70 @@ export default function App() {
   ];
 
   const trocarAba = (a: Aba) => { setAba(a); window.scrollTo(0, 0); };
+  // ---- backup e restauração ----
+  const diasSemBackup = diasDesde(bk.ultimo ?? bk.primeiroUso, agora);
+  const infoBackup = { dias: diasSemBackup, nunca: !bk.ultimo, atrasado: diasSemBackup != null && diasSemBackup > DIAS_BACKUP_ATRASADO };
+
+  const salvarBackup = async () => {
+    if (salvandoBackup) return;
+    setSalvandoBackup(true);
+    const nome = nomeDoArquivo(new Date());
+    const conteudo = JSON.stringify(criarBackup({ bills: contas, days: mapa, forecasts: previsoes, settings: cfgSalvo }), null, 2);
+    const arquivo = new File([conteudo], nome, { type: 'application/json' });
+    try {
+      const nav = navigator as Navigator & { canShare?: (d: ShareData) => boolean };
+      if (nav.canShare?.({ files: [arquivo] })) {
+        await navigator.share({ files: [arquivo], title: nome });
+        mostrar('Backup enviado para onde você escolheu.');
+      } else {
+        const url = URL.createObjectURL(arquivo);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = nome;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 5000);
+        mostrar('Backup salvo na pasta Downloads.');
+      }
+      setBk((b) => ({ ...b, ultimo: new Date().toISOString() }));
+      setBackupNome(nome);
+    } catch (e) {
+      if ((e as Error).name !== 'AbortError') mostrar('Não consegui salvar o backup.');
+    } finally {
+      setSalvandoBackup(false);
+    }
+  };
+
+  const escolherArquivo = () => arquivoRef.current?.click();
+  const aoEscolherArquivo = async (arquivo: File | undefined) => {
+    if (!arquivo) return;
+    let texto = '';
+    try { texto = await arquivo.text(); } catch { texto = ''; }
+    const r = lerBackup(texto);
+    setRestaurar(r.ok ? { fase: 'confirmar', arquivo: arquivo.name, resumo: r.resumo, motivo: '', backup: r.backup } : { fase: 'invalido', arquivo: arquivo.name, resumo: null, motivo: r.motivo, backup: null });
+  };
+  const confirmarRestauracao = () => {
+    const b = restaurar?.backup;
+    if (!b) return;
+    setRestaurar((r) => r && { ...r, fase: 'restaurando' });
+    setTimeout(() => {
+      setMapa(b.days);
+      setContas(b.bills);
+      setPrevisoes(b.forecasts);
+      setCfg({ ...CONFIG_PADRAO, ...b.settings, conta: { ...CONFIG_PADRAO.conta, ...b.settings.conta } });
+      setCalibMemo({ ultimo: null, aviso: null });
+      setRestaurar((r) => r && { ...r, fase: 'pronto' });
+    }, 500);
+  };
+
+  const dispensar = (tipo: 'closing' | 'reminder' | 'backup', ref?: string) => {
+    if (tipo === 'backup') setUi2((u) => ({ ...u, backupAte: Date.now() + 7 * 86_400_000 }));
+    else setUi2((u) => ({ ...u, [tipo]: ref }));
+    mostrar(tipo === 'closing' ? 'Resumo dispensado. Os detalhes continuam em Contas.' : tipo === 'reminder' ? 'Tudo bem. Dá para lançar depois em Contas.' : 'Tudo bem. Lembro de novo em 7 dias.');
+  };
+  const verConta = (mes: string) => { setContaFoco({ mes, abrir: false }); trocarAba('contas'); };
+  const lancarConta = () => { setContaFoco({ mes: null, abrir: true }); trocarAba('contas'); };
+  const usouFoco = useCallback(() => setContaFoco(null), []);
+
   const irParaCalibracao = () => { setAba('set'); setTimeout(() => document.getElementById('calibracao')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60); };
   const itens: [Aba, string, typeof House][] = [['home', 'Início', House], ['hist', 'Histórico', ChartColumn], ['contas', 'Contas', ReceiptText], ['set', 'Ajustes', SlidersHorizontal]];
 
@@ -377,10 +455,16 @@ export default function App() {
             onMode={aoModo}
             onTimer={aoTimer}
             onIrContas={() => trocarAba('contas')}
+            ui={ui2}
+            onDispensar={dispensar}
+            onVerConta={verConta}
+            onLancarConta={lancarConta}
+            backup={infoBackup}
+            onSalvarBackup={salvarBackup}
           />
         )}
         {aba === 'hist' && <Historico d={dados} />}
-        {aba === 'contas' && <Contas d={dados} setCfg={setCfg} salvas={contas} setContas={setContas} onIrCalibracao={irParaCalibracao} />}
+        {aba === 'contas' && <Contas d={dados} setCfg={setCfg} salvas={contas} setContas={setContas} onIrCalibracao={irParaCalibracao} foco={contaFoco} onFocoUsado={usouFoco} />}
         {aba === 'set' && (
           <Ajustes
             d={dados}
@@ -393,6 +477,9 @@ export default function App() {
             onApagar={() => setFolha('apagar')}
             onDiag={() => setFolha('diag')}
             onIntro={() => setIntroAberta(true)}
+            backup={{ rotulo: bk.ultimo ? `Último backup: ${diasDesde(bk.ultimo, agora) === 0 ? 'hoje' : `há ${diasDesde(bk.ultimo, agora)} dias`}${(diasDesde(bk.ultimo, agora) ?? 0) > DIAS_BACKUP_ATRASADO ? '. Vale salvar um.' : ''}` : 'Você ainda não salvou nenhum backup.', salvando: salvandoBackup, salvoNome: backupNome }}
+            onSalvarBackup={salvarBackup}
+            onRestaurar={escolherArquivo}
             onToast={mostrar}
           />
         )}
@@ -414,6 +501,18 @@ export default function App() {
       )}
 
       {(introAberta || (introPronta && !introVista)) && <Introducao onFechar={() => { setIntroVista(true); setIntroAberta(false); }} />}
+      <input ref={arquivoRef} type="file" accept=".json,application/json" hidden onChange={(e) => { aoEscolherArquivo(e.target.files?.[0]); e.target.value = ''; }} />
+      {restaurar && (
+        <RestaurarBackup
+          fase={restaurar.fase}
+          arquivo={restaurar.arquivo}
+          resumo={restaurar.resumo}
+          motivo={restaurar.motivo}
+          onConfirmar={confirmarRestauracao}
+          onOutro={() => { setRestaurar(null); escolherArquivo(); }}
+          onFechar={() => setRestaurar(null)}
+        />
+      )}
       {pinAberto && <Pin acao={pendente?.label ?? null} onFechar={() => { setPinAberto(false); setPendente(null); }} onConferir={conferirPin} />}
       {folha === 'diag' && <SheetDiag linhas={linhasDiag} testando={diag.testando} onTestar={testar} onFechar={() => setFolha(null)} />}
       {folha === 'apagar' && <SheetApagar desde={dias[0] ? `${dl(parseYmd(dias[0].data))} de ${parseYmd(dias[0].data).getFullYear()}` : ''} onApagar={apagar} onFechar={() => setFolha(null)} />}

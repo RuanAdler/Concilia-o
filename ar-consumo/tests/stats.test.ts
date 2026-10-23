@@ -4,6 +4,8 @@ import {
   fatiaDaConta, mediaAnterior, mediaPorDiaSemana, periodosCiclo, previsaoCiclo, projecaoCiclo, refsDeCiclos, tarifaDaUltimaConta, tarifaDoMes,
 } from '../src/lib/stats';
 import { parseNum } from '../src/lib/fmt';
+import { criarBackup, diasDesde, lerBackup, nomeDoArquivo } from '../src/lib/backup';
+import { CONFIG_PADRAO } from '../src/lib/cliente';
 import { calibrar, ciclosUsaveis, comparacoes, contaPrevista, deveGuardarPrevisao, margemDaFaixa, previsaoDaConta } from '../src/lib/previsao';
 import { CASA_SEM_AR_PADRAO, CICLOS_ANTES_DO_AR, CONTAS_INICIAIS, TARIFAS_INICIAIS, faixaCasaSemAr, mediaCasaSemAr } from '../src/lib/contas-iniciais';
 
@@ -375,5 +377,37 @@ describe('calibração e previsão da conta inteira', () => {
     expect(c[0].dentro).toBe(true);
     expect(c[0].diferenca).toBe(11);
     expect(comparacoes({ '2026-12': { ref: '2026-12', valor: 400, margem: 0.1, salvoEm: '' } }, {})).toEqual([]);
+  });
+});
+
+describe('backup', () => {
+  const salva = { ...CONTAS_INICIAIS['2026-10'], salvoEm: 1, fixa: undefined };
+  const base = () => criarBackup({ bills: { '2026-10': salva }, days: { '2026-10-20': 5.2, '2026-10-21': 4.8 }, forecasts: { '2026-11': { ref: '2026-11', valor: 380, margem: 0.1, salvoEm: '' } }, settings: { ...CONFIG_PADRAO } }, new Date('2026-10-22T20:41:00'));
+
+  it('guarda e lê de volta, com o resumo', () => {
+    const r = lerBackup(JSON.stringify(base()));
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.resumo).toMatchObject({ contas: 1, dias: 2, primeiro: '2026-10-20', ultimo: '2026-10-21' });
+      expect(r.backup.settings.diaLeitura).toBe('16');
+    }
+    expect(nomeDoArquivo(new Date(2026, 9, 22))).toBe('consumo-do-ar-backup-2026-10-22.json');
+  });
+
+  it('recusa o que não é backup do app, sem mexer em nada', () => {
+    expect(lerBackup('não é json').ok).toBe(false);
+    expect(lerBackup(JSON.stringify({ foo: 1 })).ok).toBe(false);
+    expect(lerBackup(JSON.stringify({ ...base(), version: 9 })).ok).toBe(false);
+    expect(lerBackup(JSON.stringify({ ...base(), days: { 'ontem': 5 } })).ok).toBe(false);
+    expect(lerBackup(JSON.stringify({ ...base(), days: { '2026-10-20': -3 } })).ok).toBe(false);
+    expect(lerBackup(JSON.stringify({ ...base(), bills: { '2026-10': { mes: '2026-09', valor: 1, kwh: 1, fixas: 0 } } })).ok).toBe(false);
+    expect(lerBackup(JSON.stringify({ ...base(), settings: {} })).ok).toBe(false);
+  });
+
+  it('conta os dias desde o último backup', () => {
+    const agora = Date.parse('2026-10-22T12:00:00Z');
+    expect(diasDesde('2026-10-10T12:00:00Z', agora)).toBe(12);
+    expect(diasDesde(null, agora)).toBeNull();
+    expect(diasDesde('lixo', agora)).toBeNull();
   });
 });
