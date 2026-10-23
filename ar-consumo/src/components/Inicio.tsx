@@ -8,9 +8,12 @@ import { useState, type ReactNode } from 'react';
 import { MODES, type Device, type Mode } from '@/lib/device';
 import { MONTHS, WD, WDL, brl, brl0, cap, dl, hhmm, nf, parseNum, parseYmd, ymd } from '@/lib/fmt';
 import { useMontado } from '@/lib/cliente';
-import { addDias, contaAtual, custoDe, delta, diasDoPeriodo, fatiaDaConta, periodosCiclo, previsaoCiclo, soma, tarifaDoMes } from '@/lib/stats';
+import { addDias, cicloAnterior, cicloDe, contaAtual, custoDe, delta, diasDoPeriodo, diasEntre, fatiaDaConta, periodosCiclo, previsaoCiclo, soma, tarifaDoMes } from '@/lib/stats';
 import { Ajuda, Selo } from './selos';
 import { ContaInteira } from './previsaoUi';
+import { Faixa, IconeLembrete, ResumoConta } from './Faixas';
+import { analisarConta } from '@/lib/conta-analise';
+import { Download } from 'lucide-react';
 import { Spinner, card, rotulo } from './ui';
 import type { Cmd, Dados } from './tipos';
 
@@ -35,6 +38,12 @@ type Props = {
   onMode: (m: Mode) => void;
   onTimer: (h: 1 | 2 | 4) => void;
   onIrContas: () => void;
+  ui: { closing?: string; reminder?: string; backupAte?: number };
+  onDispensar: (tipo: 'closing' | 'reminder' | 'backup', ref?: string) => void;
+  onVerConta: (mes: string) => void;
+  onLancarConta: () => void;
+  backup: { dias: number | null; nunca: boolean; atrasado: boolean };
+  onSalvarBackup: () => void;
 };
 
 const MODE_ICON: Record<Mode, ReactNode> = {
@@ -109,6 +118,18 @@ export default function Inicio(p: Props) {
   const antCobre = antInteiro.length >= Math.ceil(per.totalDias * 0.95) || antInteiro.length >= Math.round((parseYmd(per.ant.fim).getTime() - parseYmd(per.ant.inicio).getTime()) / 86_400_000) * 0.95;
   const maxConta = Math.max(custoCiclo, custoCicloAnt, 1);
 
+  // ---- resumo de fim de conta / lembrete de lançar a conta ----
+  const atualCiclo = cicloDe(hoje, d.diaLeitura);
+  const refFechada = cicloAnterior(atualCiclo, d.diaLeitura).ref;
+  const contaFechada = d.contas[refFechada];
+  const diasDepoisLeitura = diasEntre(contaFechada?.fim ?? atualCiclo.inicio, hojeStr);
+  const analiseFechada = contaFechada ? analisarConta(contaFechada, dias, d.semArDia) : null;
+  const refAnterior = Object.keys(d.contas).filter((r) => r < refFechada).sort().pop();
+  const analiseAnterior = refAnterior ? analisarConta(d.contas[refAnterior], dias, d.semArDia) : null;
+  const mostrarResumo = Boolean(analiseFechada) && diasDepoisLeitura <= 12 && p.ui.closing !== refFechada;
+  const mostrarLembrete = !contaFechada && diasDepoisLeitura >= 3 && p.ui.reminder !== refFechada;
+  const mostrarBackup = p.backup.atrasado && (p.ui.backupAte ?? 0) < Date.now();
+
   // ---- atalho para a fatia do ar ----
   const recente = Object.values(d.contas)
     .sort((a, b) => b.mes.localeCompare(a.mes))
@@ -151,6 +172,26 @@ export default function Inicio(p: Props) {
           </div>
           <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', wordBreak: 'break-word' }}>{p.erroUso}</div>
         </div>
+      )}
+
+      {mostrarLembrete && (
+        <Faixa
+          icone={IconeLembrete}
+          texto={`A conta que vence em ${MONTHS[Number(atualCiclo.inicio.slice(5, 7)) % 12]} já deve ter chegado. Lance em 30 segundos.`}
+          botao="Lançar conta"
+          onBotao={p.onLancarConta}
+          onFechar={() => p.onDispensar('reminder', refFechada)}
+        />
+      )}
+
+      {mostrarResumo && analiseFechada && (
+        <ResumoConta
+          a={analiseFechada}
+          anterior={analiseAnterior}
+          comp={d.comps.find((c) => c.ref === refFechada) ?? null}
+          onVer={() => p.onVerConta(refFechada)}
+          onFechar={() => p.onDispensar('closing', refFechada)}
+        />
       )}
 
       {loading ? (
@@ -375,7 +416,7 @@ export default function Inicio(p: Props) {
           </section>
 
           {/* 5. Atalho para a fatia do ar */}
-          {recente && recente.f.share != null && (
+          {!mostrarResumo && recente && recente.f.share != null && (
             <button onClick={p.onIrContas} className="press" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', borderRadius: 22, background: 'var(--accent-soft)', textAlign: 'left' }}>
               <ChartPie size={24} color="var(--accent)" style={{ flex: 'none' }} />
               <span style={{ flex: 1, fontSize: 14.5, fontWeight: 700, lineHeight: 1.35 }}>
@@ -383,6 +424,17 @@ export default function Inicio(p: Props) {
               </span>
               <ChevronRight size={20} />
             </button>
+          )}
+
+          {mostrarBackup && (
+            <Faixa
+              neutro
+              icone={<Download size={20} />}
+              texto={p.backup.nunca ? 'Você ainda não salvou nenhum backup. Salve um para não perder o histórico se trocar de celular.' : `Faz ${p.backup.dias} dias sem backup. Salve um para não perder o histórico se trocar de celular.`}
+              botao="Salvar"
+              onBotao={p.onSalvarBackup}
+              onFechar={() => p.onDispensar('backup')}
+            />
           )}
         </>
       )}

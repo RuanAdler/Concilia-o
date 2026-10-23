@@ -19,6 +19,8 @@ type Props = {
   salvas: Record<string, ContaSalva>; // só as que o usuário salvou (d.contas traz também as fixas do app)
   setContas: (f: (c: Record<string, ContaSalva>) => Record<string, ContaSalva>) => void;
   onIrCalibracao: () => void;
+  foco: { mes: string | null; abrir: boolean } | null;
+  onFocoUsado: () => void;
 };
 
 /** Props do formulário (janela de adicionar conta). */
@@ -76,10 +78,18 @@ function Empilhada({ a, altura = 20, legenda = false }: { a: Analise; altura?: n
 const seloCalculo = (t: Tipo) =>
   t === 'lg' ? <Selo tipo="real" texto="Ar pela LG" /> : t === 'diferenca' ? <Selo tipo="diferenca" texto="≈ Estimada pela diferença" /> : t === 'estimativa' ? <Selo tipo="estimativa" /> : t === 'antes' ? <Selo tipo="neutro" texto="Antes do ar" /> : t === 'incompleta' ? <Selo tipo="erro" texto="Incompleta" /> : <Selo tipo="neutro" texto="Sem dados do ar" />;
 
-export default function Contas({ d, setCfg, salvas, setContas, onIrCalibracao }: Props) {
+export default function Contas({ d, setCfg, salvas, setContas, onIrCalibracao, foco, onFocoUsado }: Props) {
   const { cfg, dias, hoje, diaLeitura, semArDia, contas } = d;
   const [sel, setSel] = useState<string | null>(null);
   const [folha, setFolha] = useState<{ editando: string | null } | null>(null);
+
+  // vindo do resumo ou do lembrete da tela Início
+  useEffect(() => {
+    if (!foco) return;
+    if (foco.mes) setSel(foco.mes);
+    if (foco.abrir) setFolha({ editando: null });
+    onFocoUsado();
+  }, [foco, onFocoUsado]);
 
   const lista = Object.values(contas)
     .sort((a, b) => a.mes.localeCompare(b.mes))

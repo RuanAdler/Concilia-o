@@ -1,9 +1,14 @@
 'use client';
 
-import type { ReactNode } from 'react';
+import { useEffect, type ReactNode } from 'react';
 import { Spinner } from './ui';
 
 export function Folha({ onFechar, children }: { onFechar: () => void; children: ReactNode }) {
+  useEffect(() => {
+    const fechar = (e: KeyboardEvent) => { if (e.key === 'Escape') onFechar(); };
+    window.addEventListener('keydown', fechar);
+    return () => window.removeEventListener('keydown', fechar);
+  }, [onFechar]);
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 40, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
       <div onClick={onFechar} style={{ position: 'absolute', inset: 0, background: 'rgba(10,14,20,.45)' }} />
