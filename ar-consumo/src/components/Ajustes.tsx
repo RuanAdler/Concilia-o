@@ -4,6 +4,7 @@ import { Download, Eye, Trash2 } from 'lucide-react';
 import type { ReactNode } from 'react';
 import type { Config } from '@/lib/cliente';
 import { brl, brl0, dl, nf, parseNum, parseYmd } from '@/lib/fmt';
+import { CASA_SEM_AR_PADRAO, CICLOS_ANTES_DO_AR, faixaCasaSemAr, mediaCasaSemAr } from '@/lib/contas-iniciais';
 import { custoDe, periodosCiclo, tarifaDaUltimaConta } from '@/lib/stats';
 import { Seg, Switch, card, rotulo } from './ui';
 import type { Dados } from './tipos';
@@ -101,7 +102,8 @@ export default function Ajustes({ d, setCfg, nomeLg, nDias, pinConfigurado, cone
             unidade="kWh/dia"
             valor={cfg.semAr}
             aoMudar={(v) => set('semAr', v)}
-            ajuda="Quanto a casa gastava por dia antes do ar-condicionado (contas de junho e julho: cerca de 4,3). Serve para estimar a fatia do ar nas contas em que a LG não tem dados."
+            ajuda={`Quanto a casa gastava por dia antes do ar-condicionado: média de ${CICLOS_ANTES_DO_AR.length} contas de antes do ar = ${nf(mediaCasaSemAr(), 1)} kWh por dia (de ${nf(faixaCasaSemAr().min, 1)} a ${nf(faixaCasaSemAr().max, 1)} nos meses medidos). Serve para estimar a fatia do ar nas contas em que a LG não tem dados.`}
+            botao={cfg.semAr !== CASA_SEM_AR_PADRAO ? <button onClick={() => set('semAr', CASA_SEM_AR_PADRAO)} className="press" style={{ height: 44, borderRadius: 14, background: 'var(--surface2)', fontSize: 14, fontWeight: 800 }}>Usar a média das contas ({CASA_SEM_AR_PADRAO})</button> : undefined}
           />
         </Linha>
       </Secao>
