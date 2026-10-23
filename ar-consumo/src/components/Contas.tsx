@@ -1,5 +1,6 @@
 'use client';
 
+import { vibrar } from '@/lib/movimento';
 import { ChevronRight, CircleAlert, Plus } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import type { Config } from '@/lib/cliente';
@@ -332,6 +333,7 @@ function FormularioConta({ editando, cfg, setCfg, dias, hoje, diaLeitura, semArD
     if (!periodoOk) return setErro('A leitura atual precisa ser depois da leitura anterior.');
     if (taxas >= total) return setErro('As taxas fixas não podem ser maiores que o total.');
     setContas((c) => ({ ...c, [mes]: rascunho }));
+    vibrar('sucesso');
     const tarifa = consumo > 0 ? (total - taxas) / consumo : null;
     const mesAtualCal = ymd(hoje).slice(0, 7);
     if (atualizar && tarifa != null) {

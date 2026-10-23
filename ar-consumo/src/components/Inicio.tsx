@@ -11,6 +11,7 @@ import { useMontado } from '@/lib/cliente';
 import { addDias, cicloAnterior, cicloDe, contaAtual, custoDe, delta, diasDoPeriodo, diasEntre, fatiaDaConta, periodosCiclo, previsaoCiclo, soma, tarifaDoMes } from '@/lib/stats';
 import { Ajuda, Selo } from './selos';
 import { ContaInteira } from './previsaoUi';
+import { CountUp } from './CountUp';
 import { Faixa, IconeLembrete, ResumoConta } from './Faixas';
 import { analisarConta } from '@/lib/conta-analise';
 import { Download } from 'lucide-react';
@@ -215,7 +216,7 @@ export default function Inicio(p: Props) {
               <div>
                 <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--muted)' }}>O ar já custou</div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: 56, fontWeight: 800, letterSpacing: '-0.045em', lineHeight: 1.05 }}>{brl0(gasto)}</span>
+                  <span style={{ fontSize: 56, fontWeight: 800, letterSpacing: '-0.045em', lineHeight: 1.05 }}><CountUp v={gasto} fmt={brl0} /></span>
                   <Selo tipo="estimativa" />
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 13, fontWeight: 600, color: 'var(--muted)' }}>
@@ -332,7 +333,7 @@ export default function Inicio(p: Props) {
                   </div>
 
                   {cmd && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', borderRadius: 16, fontSize: 13, fontWeight: 700, background: cmd.status === 'error' ? 'var(--red-soft)' : cmd.status === 'ok' ? 'var(--green-soft)' : 'var(--accent-soft)' }}>
+                    <div key={cmd.status} className={cmd.status === 'ok' ? 'cmd-ok' : cmd.status === 'error' ? 'cmd-erro' : undefined} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', borderRadius: 16, fontSize: 13, fontWeight: 700, background: cmd.status === 'error' ? 'var(--red-soft)' : cmd.status === 'ok' ? 'var(--green-soft)' : 'var(--accent-soft)' }}>
                       {cmd.status === 'pending' && <Spinner />}
                       {cmd.status === 'ok' && <Check size={18} color="var(--green)" />}
                       {cmd.status === 'error' && <TriangleAlert size={18} color="var(--red)" />}

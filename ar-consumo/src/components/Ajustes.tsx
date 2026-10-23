@@ -189,6 +189,15 @@ export default function Ajustes({ d, setCfg, nomeLg, nDias, pinConfigurado, cone
         </Linha>
       </Secao>
 
+      <Secao titulo="Toque">
+        <Linha ultimo>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, fontWeight: 700, fontSize: 15 }}>
+            <span>Vibrar nos comandos<div style={dica}>Uma vibração leve ao ligar, mudar a temperatura e quando o comando dá certo ou falha. Só funciona em alguns celulares.</div></span>
+            <Switch on={cfg.vibrar !== false} onClick={() => set('vibrar', cfg.vibrar === false)} label="Vibrar nos comandos" />
+          </div>
+        </Linha>
+      </Secao>
+
       <Secao titulo="Histórico">
         <Linha ultimo>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, fontWeight: 700, fontSize: 15 }}>

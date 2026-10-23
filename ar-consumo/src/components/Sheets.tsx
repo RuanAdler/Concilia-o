@@ -11,8 +11,8 @@ export function Folha({ onFechar, children }: { onFechar: () => void; children: 
   }, [onFechar]);
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 40, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
-      <div onClick={onFechar} style={{ position: 'absolute', inset: 0, background: 'rgba(10,14,20,.45)' }} />
-      <div role="dialog" aria-modal="true" style={{ position: 'relative', width: '100%', maxWidth: 480, maxHeight: '92%', overflowY: 'auto', background: 'var(--surface)', borderRadius: '28px 28px 0 0', padding: '12px 20px calc(34px + env(safe-area-inset-bottom))' }}>
+      <div onClick={onFechar} style={{ position: 'absolute', inset: 0, background: 'rgba(10,14,20,.45)', animation: 'dcfade .2s ease-out' }} />
+      <div role="dialog" aria-modal="true" style={{ position: 'relative', width: '100%', maxWidth: 480, maxHeight: '92%', overflowY: 'auto', background: 'var(--surface)', borderRadius: '28px 28px 0 0', padding: '12px 20px calc(34px + env(safe-area-inset-bottom))', animation: 'dcsobe .32s cubic-bezier(.2,.8,.2,1)' }}>
         <div style={{ width: 40, height: 5, borderRadius: 3, background: 'var(--line)', margin: '0 auto 16px' }} />
         {children}
       </div>

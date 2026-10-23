@@ -22,6 +22,7 @@ export type Config = {
   semAr: string; // valor manual da casa sem o ar (usado quando a calibração automática está desligada)
   calibAuto: boolean;
   showClima: boolean;
+  vibrar: boolean;
   lockMin: number;
   conta: Conta;
   tarifas: Tarifas;
@@ -46,6 +47,7 @@ export const CONFIG_PADRAO: Config = {
   semAr: CASA_SEM_AR_PADRAO,
   calibAuto: true,
   showClima: true,
+  vibrar: true,
   lockMin: 5,
   conta: { valor: '', kwh: '', fixas: '0', mes: '', inicio: '', fim: '' },
   tarifas: {},
